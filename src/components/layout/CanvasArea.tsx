@@ -4,7 +4,7 @@ import { PixiCanvas } from "../canvas/PixiCanvas"
 import type { InteractionMode } from "../../types/canvas"
 
 export const CanvasArea = () => {
-  const { state, setInteractionMode } = useCanvas()
+  const { state, setInteractionMode,copy,paste,deleteSelected } = useCanvas()
   const prevModeRef = useRef<InteractionMode | null>(null)
   const spacePressedRef = useRef(false)
   const modeRef = useRef<InteractionMode>(state.interactionMode)
@@ -15,6 +15,33 @@ export const CanvasArea = () => {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      //判断是否为删除键
+      if(event.code == 'Delete'){
+        //焦点在输入框，不执行删除元素操作
+        const activeTag = document.activeElement?.tagName.toLowerCase()
+        if(activeTag == 'input' || activeTag == 'textarea'){
+          return
+        }
+        event.preventDefault()
+        deleteSelected() // 调用 context 中的删除方法
+        return
+      }
+      //检查control键
+      const isControl = event.ctrlKey
+
+      //检查C键 + control键
+      if(isControl && (event.code === "KeyC" || event.key === "c") ){
+        event.preventDefault() // 阻止浏览器默认行为
+        copy()
+        return
+      }
+
+      if(isControl && (event.code === "KeyV" || event.key === "v")){
+        event.preventDefault()
+        paste()
+        return
+      }
+
       if (event.code !== "Space" || event.repeat) return
       event.preventDefault()
       if (spacePressedRef.current) return
@@ -44,7 +71,7 @@ export const CanvasArea = () => {
       window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [setInteractionMode])
+  }, [setInteractionMode,copy,paste])
 
   return (
     <main className="relative flex-1 overflow-hidden bg-canvas-background">

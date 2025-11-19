@@ -146,6 +146,9 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const [state, dispatch] = useReducer(canvasReducer, undefined, getInitialState)
   const appRef = useRef<Application | null>(null)
 
+  //useRef作为内部剪切板
+  const clipboardRef = useRef<CanvasElement[]>([])
+
   const mutateElements = useCallback(
     (
       updater: (elements: CanvasElement[]) => CanvasElement[],
@@ -167,6 +170,47 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       dispatch({ type: "SET_SELECTION", payload: ids, additive }),
     []
   )
+
+  //复制方法
+  const copy = useCallback(() => {
+    const selectedElements = state.elements.filter((el) =>
+      state.selectedIds.includes(el.id)
+    )
+    if (selectedElements.length > 0) {
+      //深拷贝存储，防止引用关联
+      clipboardRef.current = deepCopy(selectedElements)
+    }
+  }, [state.elements, state.selectedIds])
+
+  //粘贴方法
+  const paste = useCallback(() => {
+    const clipboard = clipboardRef.current
+    if (!clipboard.length) return
+
+    const newElements: CanvasElement[] = []
+    const newIds: string[] = []
+
+    clipboard.forEach((item) => {
+      const id = createId()
+      newIds.push(id)
+      // 生成新元素：新ID，位置偏移 20px
+      const newElement = {
+        ...deepCopy(item), // 再次深拷贝，确保新粘贴的元素与剪贴板断开关联
+        id,
+        name: `${item.name} 副本`,
+        x: item.x + 20,
+        y: item.y + 20,
+      }
+      newElements.push(newElement)
+    })
+
+    // 将新元素添加到画布
+    mutateElements((prev) => [...prev, ...newElements])
+    // 选中新粘贴的元素
+    dispatch({ type: "SET_SELECTION", payload: newIds })
+  }, [mutateElements])
+
+
 
   const clearSelection = useCallback(
     () => dispatch({ type: "CLEAR_SELECTION" }),
@@ -351,6 +395,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       redo,
       registerApp,
       exportAsImage,
+      copy,//复制
+      paste,//粘贴
     }),
     [
       state,
@@ -370,6 +416,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       redo,
       registerApp,
       exportAsImage,
+      copy,//复制
+      paste,//粘贴
     ]
   )
 

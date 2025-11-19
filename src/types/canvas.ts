@@ -73,7 +73,7 @@ export interface CanvasContextValue {
   ) => void
   setSelection: (ids: string[], additive?: boolean) => void
   clearSelection: () => void
-  deleteSelected: () => void
+  deleteSelected: () => void //删除方法
   setZoom: (zoom: number) => void
   panBy: (delta: { x: number; y: number }) => void
   setInteractionMode: (mode: InteractionMode) => void
@@ -81,4 +81,6 @@ export interface CanvasContextValue {
   redo: () => void
   registerApp: (app: import("pixi.js").Application | null) => void
   exportAsImage: () => string | null
+  copy:()=> void   //快捷键复制方法
+  paste:()=> void  //快捷键粘贴方法
 }
