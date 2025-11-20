@@ -17,10 +17,31 @@ import type {
   ShapeVariant,
 } from "../types/canvas"
 
-// 生成唯一ID
+/**
+ * 生成唯一标识符
+ * 
+ * @function createId
+ * @returns {string} 生成的唯一ID
+ * 
+ * @description 
+ * 使用 Crypto API 的 randomUUID 方法生成符合 RFC 4122 标准的 UUID。
+ * 用于为画布元素创建唯一标识符。
+ */
 const createId = () => crypto.randomUUID()
 
-// 深拷贝函数，优先使用 structuredClone API，降级到 JSON 方法
+/**
+ * 深度复制对象
+ * 
+ * @function deepCopy
+ * @template T - 要复制的对象类型
+ * @param {T} value - 要复制的对象
+ * @returns {T} 复制后的新对象
+ * 
+ * @description 
+ * 优先使用 structuredClone API 进行深度复制，如果不可用则使用 JSON 方法作为后备。
+ * 确保返回的对象与原对象完全独立，修改不会影响原对象。
+ * 用于创建元素数组的副本，避免引用共享问题。
+ */
 const deepCopy = <T,>(value: T): T => {
   if (typeof structuredClone === "function") {
     return structuredClone(value)
@@ -28,34 +49,51 @@ const deepCopy = <T,>(value: T): T => {
   return JSON.parse(JSON.stringify(value))
 }
 
-// 本地存储键名
+// 本地存储键名，用于保存画布状态
 const STORAGE_KEY = "my-figma:canvas-state"
 
-// 画布基础状态定义
+/**
+ * 画布基础状态
+ * 
+ * @constant {CanvasState} baseState
+ * @description 
+ * 定义画布的初始状态，包括：
+ * - elements: 画布元素数组
+ * - selectedIds: 当前选中的元素ID列表
+ * - zoom: 画布缩放比例
+ * - pan: 画布平移偏移量
+ * - interactionMode: 交互模式（选择/平移）
+ * - history: 撤销历史记录栈
+ * - redoStack: 重做历史记录栈
+ */
 const baseState: CanvasState = {
-  elements: [],                 // 画布上的元素列表
-  selectedIds: [],              // 当前选中的元素ID列表
-  zoom: 1,                      // 当前缩放比例
-  pan: { x: 0, y: 0 },          // 当前平移偏移量
-  interactionMode: "select",    // 当前交互模式（选择/绘制等）
-  history: [],                  // 操作历史记录栈，用于撤销功能
-  redoStack: [],                // 重做操作栈，用于重做功能
+  elements: [],
+  selectedIds: [],
+  zoom: 1,
+  pan: { x: 0, y: 0 },
+  interactionMode: "select",
+  history: [],
+  redoStack: [],
 }
 
-// 获取初始状态函数
-// 尝试从 localStorage 恢复状态，如果失败则返回默认状态
+/**
+ * 获取初始画布状态
+ * 
+ * @function getInitialState
+ * @returns {CanvasState} 初始画布状态
+ * 
+ * @description 
+ * 从本地存储中恢复画布状态，如果不存在或无效则返回基础状态。
+ * 只恢复元素列表、平移偏移和缩放比例，其他状态使用默认值。
+ * 处理了各种边界情况，如存储数据格式不正确、解析错误等。
+ */
 const getInitialState = (): CanvasState => {
-  // 创建基础状态的深拷贝作为回退选项
   const fallback = deepCopy(baseState)
-  // 检查是否在浏览器环境中
   if (typeof window === "undefined") return fallback
   try {
-    // 尝试从本地存储获取保存的状态
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (!stored) return fallback
-    // 解析存储的数据
     const parsed = JSON.parse(stored)
-    // 返回合并后的状态，确保数据完整性
     return {
       ...fallback,
       elements: Array.isArray(parsed?.elements) ? parsed.elements : [],
@@ -66,52 +104,66 @@ const getInitialState = (): CanvasState => {
       zoom: typeof parsed?.zoom === "number" ? parsed.zoom : fallback.zoom,
     }
   } catch {
-    // 如果解析失败，返回默认状态
     return fallback
   }
 }
 
-// 定义所有可能的状态变更 Action 类型
+/**
+ * 画布状态管理动作类型
+ * 
+ * @description 
+ * 定义了所有可以修改画布状态的动作类型，包括元素操作、选择管理、
+ * 视图控制和历史记录管理等。使用联合类型确保动作类型的类型安全。
+ */
 type Action =
-  // 更新元素列表的 Action
   | {
       type: "SET_ELEMENTS"
       payload: {
-        updater: (elements: CanvasElement[]) => CanvasElement[]  // 元素更新函数
-        recordHistory: boolean                                    // 是否记录历史
-        historySnapshot?: CanvasElement[]                         // 可选的历史快照
+        updater: (elements: CanvasElement[]) => CanvasElement[]
+        recordHistory: boolean
+        historySnapshot?: CanvasElement[]
       }
     }
-  // 设置选中元素的 Action
   | { type: "SET_SELECTION"; payload: string[]; additive?: boolean }
-  // 清除选中状态的 Action
   | { type: "CLEAR_SELECTION" }
-  // 设置缩放级别的 Action
   | { type: "SET_ZOOM"; payload: number }
-  // 平移画布的 Action
   | { type: "PAN_BY"; payload: { x: number; y: number } }
-  // 设置交互模式的 Action
   | { type: "SET_MODE"; payload: InteractionMode }
-  // 撤销操作的 Action
   | { type: "UNDO" }
-  // 重做操作的 Action
   | { type: "REDO" }
 
-// 画布状态 Reducer 函数
-// 根据不同的 Action 类型处理状态变更
+/**
+ * 画布状态管理 Reducer
+ * 
+ * @function canvasReducer
+ * @param {CanvasState} state - 当前画布状态
+ * @param {Action} action - 状态更新动作
+ * @returns {CanvasState} 更新后的画布状态
+ * 
+ * @description 
+ * 根据动作类型更新画布状态，实现以下功能：
+ * 1. SET_ELEMENTS: 更新元素列表，可选择是否记录历史
+ * 2. SET_SELECTION: 设置选中元素，支持累加选择模式
+ * 3. CLEAR_SELECTION: 清除所有选中状态
+ * 4. SET_ZOOM: 设置画布缩放比例
+ * 5. PAN_BY: 相对平移画布视图
+ * 6. SET_MODE: 设置交互模式（选择/平移）
+ * 7. UNDO: 撤销上一步操作
+ * 8. REDO: 重做已撤销的操作
+ */
 const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
   switch (action.type) {
     case "SET_ELEMENTS": {
-      // 创建当前元素的深拷贝作为工作副本
+      // 创建元素列表的工作副本，避免直接修改原数组
       const workingCopy = deepCopy(state.elements)
       // 应用更新函数
       const updated = action.payload.updater(workingCopy)
-      // 是否记录历史
+      // 判断是否需要记录历史
       const shouldRecord = action.payload.recordHistory
       return {
         ...state,
         elements: updated,
-        // 如果需要记录历史，将当前状态添加到历史栈
+        // 根据需要记录历史快照
         history: shouldRecord
           ? [...state.history, action.payload.historySnapshot ?? deepCopy(state.elements)]
           : state.history,
@@ -122,7 +174,7 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
     case "SET_SELECTION":
       return {
         ...state,
-        // additive 为 true 时追加选中，false 时替换选中
+        // 根据累加模式决定是追加选择还是替换选择
         selectedIds: action.additive
           ? Array.from(new Set([...state.selectedIds, ...action.payload]))
           : action.payload,
@@ -134,6 +186,7 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
     case "PAN_BY":
       return {
         ...state,
+        // 在当前平移基础上累加新的偏移量
         pan: {
           x: state.pan.x + action.payload.x,
           y: state.pan.y + action.payload.y,
@@ -142,11 +195,11 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
     case "SET_MODE":
       return { ...state, interactionMode: action.payload }
     case "UNDO": {
-      // 如果没有历史记录，直接返回当前状态
+      // 检查是否有可撤销的历史记录
       if (!state.history.length) return state
-      // 获取上一个状态
+      // 获取最近的历史记录
       const previous = state.history[state.history.length - 1]
-      // 移除最后一个历史记录
+      // 创建新的历史栈（移除最后一个）
       const nextHistory = state.history.slice(0, -1)
       return {
         ...state,
@@ -154,42 +207,72 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
         history: nextHistory,
         // 将当前状态添加到重做栈
         redoStack: [deepCopy(state.elements), ...state.redoStack],
-        selectedIds: [],  // 撤销时清除选中状态
+        // 撤销时清除选择状态
+        selectedIds: [],
       }
     }
     case "REDO": {
-      // 如果没有重做记录，直接返回当前状态
+      // 检查是否有可重做的操作
       if (!state.redoStack.length) return state
-      // 获取下一个状态和剩余的重做栈
+      // 获取重做栈的第一个元素
       const [next, ...rest] = state.redoStack
       return {
         ...state,
         elements: next,
         // 将当前状态添加到历史栈
         history: [...state.history, deepCopy(state.elements)],
+        // 更新重做栈
         redoStack: rest,
-        selectedIds: [],  // 重做时清除选中状态
+        // 重做时清除选择状态
+        selectedIds: [],
       }
     }
     default:
+      // 未知动作类型，返回原状态
       return state
   }
 }
 
-// 创建画布上下文对象
 const CanvasContext = createContext<CanvasContextValue | null>(null)
 
-// 画布状态提供者组件
+/**
+ * CanvasProvider 画布状态提供者组件
+ * 
+ * @component CanvasProvider
+ * @param {ReactNode} children - 子组件
+ * @returns {JSX.Element} Context Provider 组件
+ * 
+ * @description 
+ * 提供画布状态管理的上下文，实现以下功能：
+ * 1. 管理画布元素（添加、更新、删除）
+ * 2. 处理元素选择和批量操作
+ * 3. 实现撤销/重做功能
+ * 4. 管理画布缩放和平移
+ * 5. 提供剪贴板功能（复制/粘贴）
+ * 6. 导出画布为图片
+ */
 export const CanvasProvider = ({ children }: { children: ReactNode }) => {
-  // 使用 useReducer 管理画布状态，初始化时调用 getInitialState
+  // 使用 useReducer 管理画布状态，通过 getInitialState 初始化状态
   const [state, dispatch] = useReducer(canvasReducer, undefined, getInitialState)
-  // 引用 PIXI 应用实例
+  // 存储 PixiJS 应用实例的引用
   const appRef = useRef<Application | null>(null)
 
   // 使用 useRef 作为内部剪贴板，存储复制的元素
   const clipboardRef = useRef<CanvasElement[]>([])
 
-  // 元素变更函数，用于更新画布元素列表
+  /**
+   * 更新元素列表的核心方法
+   * 
+   * @function mutateElements
+   * @param {function} updater - 更新函数，接收当前元素数组并返回更新后的数组
+   * @param {object} options - 可选配置项
+   * @param {boolean} options.recordHistory - 是否记录历史，默认为 true
+   * @param {CanvasElement[]} options.historySnapshot - 自定义历史快照
+   * 
+   * @description 
+   * 这是所有元素更新的核心方法，通过 dispatch SET_ELEMENTS 动作来更新状态。
+   * 支持控制是否记录历史，以及提供自定义历史快照。
+   */
   const mutateElements = useCallback(
     (
       updater: (elements: CanvasElement[]) => CanvasElement[],
@@ -199,21 +282,40 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         type: "SET_ELEMENTS",
         payload: {
           updater,
-          recordHistory: options?.recordHistory ?? true,  // 默认记录历史
+          recordHistory: options?.recordHistory ?? true,
           historySnapshot: options?.historySnapshot,
         },
       }),
     []
   )
 
-  // 设置选中元素的函数
+  /**
+   * 设置选中元素
+   * 
+   * @function setSelection
+   * @param {string[]} ids - 要选中的元素ID数组
+   * @param {boolean} additive - 是否累加选择模式，默认为 false
+   * 
+   * @description 
+   * 设置当前选中的元素列表。当 additive 为 true 时，新的选择会添加到现有选择中；
+   * 为 false 时，会替换当前选择。通过 dispatch SET_SELECTION 动作更新状态。
+   */
   const setSelection = useCallback(
     (ids: string[], additive = false) =>
       dispatch({ type: "SET_SELECTION", payload: ids, additive }),
     []
   )
 
-  // 复制选中元素到内部剪贴板
+  /**
+   * 复制选中的元素到剪贴板
+   * 
+   * @function copy
+   * 
+   * @description 
+   * 将当前选中的元素复制到内部剪贴板。
+   * 使用深拷贝确保剪贴板中的元素与原始元素完全独立，
+   * 防止后续修改影响原始数据。
+   */
   const copy = useCallback(() => {
     // 筛选出当前选中的元素
     const selectedElements = state.elements.filter((el) =>
@@ -225,7 +327,19 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [state.elements, state.selectedIds])
 
-  // 从剪贴板粘贴元素到画布
+  /**
+   * 从剪贴板粘贴元素
+   * 
+   * @function paste
+   * 
+   * @description 
+   * 将剪贴板中的元素粘贴到画布上，执行以下操作：
+   * 1. 为每个元素生成新的唯一ID
+   * 2. 将元素位置偏移20px，避免与原元素重叠
+   * 3. 在元素名称后添加"副本"后缀
+   * 4. 使用深拷贝确保新元素与剪贴板断开关联
+   * 5. 将新元素添加到画布并选中它们
+   */
   const paste = useCallback(() => {
     const clipboard = clipboardRef.current
     if (!clipboard.length) return
@@ -255,10 +369,33 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
 
 
 
-  // 清除选中状态的函数
-  const clearSelection = () => dispatch({ type: "CLEAR_SELECTION" })
+  /**
+   * 清除所有选中状态
+   * 
+   * @function clearSelection
+   * 
+   * @description 
+   * 清除当前所有元素的选中状态，通过 dispatch CLEAR_SELECTION 动作实现。
+   * 通常在执行某些操作后需要取消选择时使用。
+   */
+  const clearSelection = useCallback(
+    () => dispatch({ type: "CLEAR_SELECTION" }),
+    []
+  )
 
-  // 添加形状元素到画布
+  /**
+   * 添加形状元素到画布
+   * 
+   * @function addShape
+   * @param {ShapeVariant} shape - 形状类型（rectangle 或 circle）
+   * 
+   * @description 
+   * 创建一个新的形状元素并添加到画布中：
+   * 1. 根据形状类型设置默认尺寸（矩形：220x140，圆形：160x160）
+   * 2. 设置默认位置（320, 180）和样式属性
+   * 3. 矩形默认圆角为12px，圆形无圆角
+   * 4. 将新元素添加到画布并自动选中
+   */
   const addShape = useCallback(
     (shape: ShapeVariant) => {
       const id = createId()
@@ -278,17 +415,30 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         fill: "#f8fafc",
         stroke: "#0f172a",
         strokeWidth: 2,
+        // 矩形默认圆角为12px，圆形无圆角
         cornerRadius: shape === "rectangle" ? 12 : 0,
       }
-      // 添加元素到画布
+      // 将新元素添加到画布
       mutateElements((elements) => [...elements, element])
-      // 选中新添加的元素
+      // 自动选中新添加的元素
       dispatch({ type: "SET_SELECTION", payload: [id] })
     },
     [mutateElements, state.elements.length]
   )
 
-  // 添加文本元素到画布
+  /**
+   * 添加文本元素到画布
+   * 
+   * @function addText
+   * @param {string} text - 文本内容，默认为"双击编辑文本"
+   * 
+   * @description 
+   * 创建一个新的文本元素并添加到画布中：
+   * 1. 设置默认位置（360, 220）和尺寸（260x80）
+   * 2. 使用默认字体样式（Inter字体，24px大小，500字重）
+   * 3. 设置默认文本颜色和背景色
+   * 4. 将新元素添加到画布并自动选中
+   */
   const addText = useCallback(
     (text = "双击编辑文本") => {
       const id = createId()
@@ -311,15 +461,30 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         background: "#ffffff",
         lineHeight: 1.3,
       }
-      // 添加元素到画布
+      // 将新元素添加到画布
       mutateElements((elements) => [...elements, element])
-      // 选中新添加的元素
+      // 自动选中新添加的元素
       dispatch({ type: "SET_SELECTION", payload: [id] })
     },
     [mutateElements, state.elements.length]
   )
 
-  // 添加图片元素到画布
+  /**
+   * 添加图片元素到画布
+   * 
+   * @function addImage
+   * @param {string} src - 图片URL或数据URI
+   * @param {object} size - 可选的图片尺寸
+   * @param {number} size.width - 图片宽度，默认为240
+   * @param {number} size.height - 图片高度，默认为160
+   * 
+   * @description 
+   * 创建一个新的图片元素并添加到画布中：
+   * 1. 设置默认位置（280, 160）和尺寸（240x160，可通过参数覆盖）
+   * 2. 初始化默认滤镜设置（无灰度、无模糊、正常亮度）
+   * 3. 设置默认圆角为12px
+   * 4. 将新元素添加到画布并自动选中
+   */
   const addImage = useCallback(
     (src: string, size?: { width: number; height: number }) => {
       const id = createId()
@@ -329,11 +494,13 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         name: `图片 ${state.elements.length + 1}`,
         x: 280,
         y: 160,
+        // 使用传入的尺寸或默认尺寸
         width: size?.width ?? 240,
         height: size?.height ?? 160,
         rotation: 0,
         opacity: 1,
         src,
+        // 初始化默认滤镜设置
         filters: {
           grayscale: false,
           blur: 0,
@@ -341,15 +508,28 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         },
         borderRadius: 12,
       }
-      // 添加元素到画布
+      // 将新元素添加到画布
       mutateElements((elements) => [...elements, element])
-      // 选中新添加的元素
+      // 自动选中新添加的元素
       dispatch({ type: "SET_SELECTION", payload: [id] })
     },
     [mutateElements, state.elements.length]
   )
 
-  // 更新单个元素的属性
+  /**
+   * 更新单个元素的属性
+   * 
+   * @function updateElement
+   * @param {string} id - 要更新的元素ID
+   * @param {Partial<CanvasElement>} changes - 要更新的属性对象
+   * 
+   * @description 
+   * 根据元素ID更新指定元素的属性：
+   * 1. 查找匹配ID的元素
+   * 2. 将传入的属性合并到元素中
+   * 3. 保留未指定的原有属性
+   * 4. 自动记录历史以便撤销
+   */
   const updateElement = useCallback(
     (id: string, changes: Partial<CanvasElement>) => {
       mutateElements(
@@ -360,14 +540,28 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     [mutateElements]
   )
 
-  // 批量更新选中元素的属性
+  /**
+   * 批量更新所有选中元素的属性
+   * 
+   * @function updateSelectedElements
+   * @param {function} updater - 更新函数，接收当前元素并返回要更新的属性
+   * 
+   * @description 
+   * 对当前选中的所有元素应用相同的更新逻辑：
+   * 1. 检查是否有选中的元素，无则直接返回
+   * 2. 对每个选中的元素调用updater函数
+   * 3. 将返回的属性合并到对应元素中
+   * 4. 适用于批量操作如统一修改颜色、字体等
+   */
   const updateSelectedElements = useCallback(
     (updater: (element: CanvasElement) => Partial<CanvasElement>) => {
       const ids = state.selectedIds
+      // 没有选中元素时直接返回
       if (!ids.length) return
       mutateElements(
         (elements) =>
           elements.map((el) =>
+            // 只更新选中的元素
             ids.includes(el.id) ? { ...el, ...updater(el) } : el
           ) as CanvasElement[]
       )
@@ -375,44 +569,137 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     [mutateElements, state.selectedIds]
   )
 
-  // 删除选中的元素
+  /**
+   * 删除所有选中的元素
+   * 
+   * @function deleteSelected
+   * 
+   * @description 
+   * 从画布中删除当前选中的所有元素：
+   * 1. 检查是否有选中的元素，无则直接返回
+   * 2. 过滤掉所有选中的元素
+   * 3. 清除选择状态
+   * 4. 自动记录历史以便撤销
+   */
   const deleteSelected = useCallback(() => {
+    // 没有选中元素时直接返回
     if (!state.selectedIds.length) return
+    // 过滤掉选中的元素
     mutateElements((elements) =>
       elements.filter((el) => !state.selectedIds.includes(el.id))
     )
-    // 删除后清除选中状态
+    // 清除选择状态
     dispatch({ type: "CLEAR_SELECTION" })
   }, [mutateElements, state.selectedIds])
 
-  // 设置画布缩放级别（限制在 0.25-3 之间）
+  /**
+   * 设置画布缩放比例
+   * 
+   * @function setZoom
+   * @param {number} zoom - 目标缩放比例
+   * 
+   * @description 
+   * 设置画布的缩放比例，限制在0.25到3之间：
+   * 1. 使用Math.min和Math.max确保缩放比例在合理范围内
+   * 2. 通过dispatch SET_ZOOM动作更新状态
+   * 3. 缩放会影响画布中所有元素的显示大小
+   */
   const setZoom = useCallback((zoom: number) => {
+    // 限制缩放比例在0.25到3之间
     const next = Math.min(3, Math.max(0.25, zoom))
     dispatch({ type: "SET_ZOOM", payload: next })
   }, [])
 
-  // 平移画布视图
+  /**
+   * 相对平移画布视图
+   * 
+   * @function panBy
+   * @param {object} delta - 平移距离
+   * @param {number} delta.x - X轴方向的平移距离
+   * @param {number} delta.y - Y轴方向的平移距离
+   * 
+   * @description 
+   * 根据指定的距离相对平移画布视图：
+   * 1. 接收X和Y方向的平移距离
+   * 2. 通过dispatch PAN_BY动作更新状态
+   * 3. 平移会影响画布中所有元素的显示位置
+   */
   const panBy = useCallback((delta: { x: number; y: number }) => {
     dispatch({ type: "PAN_BY", payload: delta })
   }, [])
 
-  // 设置交互模式
+  /**
+   * 设置画布交互模式
+   * 
+   * @function setInteractionMode
+   * @param {InteractionMode} mode - 交互模式（select 或 pan）
+   * 
+   * @description 
+   * 设置画布的交互模式：
+   * 1. select模式：可以选择和操作画布元素
+   * 2. pan模式：可以平移整个画布视图
+   * 3. 通过dispatch SET_MODE动作更新状态
+   */
   const setInteractionMode = useCallback(
     (mode: InteractionMode) => dispatch({ type: "SET_MODE", payload: mode }),
     []
   )
 
-  // 撤销操作
+  /**
+   * 撤销上一步操作
+   * 
+   * @function undo
+   * 
+   * @description 
+   * 撤销上一步操作，恢复到上一个历史状态：
+   * 1. 从历史栈中取出上一个状态
+   * 2. 将当前状态添加到重做栈
+   * 3. 恢复到上一个状态并清除选择
+   */
   const undo = useCallback(() => dispatch({ type: "UNDO" }), [])
-  // 重做操作
+  
+  /**
+   * 重做已撤销的操作
+   * 
+   * @function redo
+   * 
+   * @description 
+   * 重做已撤销的操作，恢复到下一个历史状态：
+   * 1. 从重做栈中取出下一个状态
+   * 2. 将当前状态添加到历史栈
+   * 3. 恢复到下一个状态并清除选择
+   */
   const redo = useCallback(() => dispatch({ type: "REDO" }), [])
 
-  // 注册 PIXI 应用实例
+  /**
+   * 注册PixiJS应用实例
+   * 
+   * @function registerApp
+   * @param {Application} app - PixiJS应用实例
+   * 
+   * @description 
+   * 将PixiJS应用实例存储到ref中：
+   * 1. 用于后续的画布导出功能
+   * 2. 确保CanvasProvider可以访问PixiJS应用
+   * 3. 通常在PixiCanvas组件初始化时调用
+   */
   const registerApp = useCallback((app: Application | null) => {
     appRef.current = app
   }, [])
 
-  // 导出画布为图片
+  /**
+   * 导出画布为PNG图片
+   * 
+   * @function exportAsImage
+   * @returns {string|null} 图片的Data URL或null（如果导出失败）
+   * 
+   * @description 
+   * 将当前画布导出为PNG格式的图片：
+   * 1. 获取已注册的PixiJS应用实例
+   * 2. 使用renderer.extract.canvas方法提取画布内容
+   * 3. 将提取的canvas转换为PNG格式的Data URL
+   * 4. 返回可用于下载或显示的图片数据
+   */
   const exportAsImage = useCallback(() => {
     const app = appRef.current
     if (!app) return null
@@ -428,39 +715,66 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     return canvas?.toDataURL("image/png") ?? null
   }, [])
 
-  // 状态持久化：监听状态变化并保存到 localStorage
+  /**
+   * 持久化画布状态到本地存储
+   * 
+   * @description 
+   * 当画布元素、平移或缩放状态发生变化时，将状态保存到localStorage：
+   * 1. 检查是否在浏览器环境中运行
+   * 2. 将关键状态序列化为JSON字符串
+   * 3. 使用STORAGE_KEY作为键保存到localStorage
+   * 4. 实现画布状态的自动持久化
+   */
   useEffect(() => {
+    // 检查是否在浏览器环境中运行
     if (typeof window === "undefined") return
+    // 将关键状态序列化为JSON字符串
     const payload = JSON.stringify({
       elements: state.elements,
       pan: state.pan,
       zoom: state.zoom,
     })
+    // 使用STORAGE_KEY作为键保存到localStorage
     window.localStorage.setItem(STORAGE_KEY, payload)
   }, [state.elements, state.pan, state.zoom])
 
-  // 创建上下文值，使用 useMemo 优化性能
+  /**
+   * 创建上下文值对象
+   * 
+   * @description 
+   * 使用useMemo创建稳定的上下文值对象，包含所有状态和方法：
+   * 1. 避免不必要的重新渲染
+   * 2. 提供统一的状态和方法访问接口
+   * 3. 确保依赖项变化时才重新创建对象
+   */
   const value = useMemo<CanvasContextValue>(
     () => ({
-      state,                    // 当前画布状态
-      addShape,                 // 添加形状
-      addText,                  // 添加文本
-      addImage,                 // 添加图片
-      updateElement,            // 更新单个元素
-      updateSelectedElements,   // 批量更新选中元素
-      mutateElements,           // 元素变更函数
-      setSelection,             // 设置选中状态
-      clearSelection,          // 清除选中状态
-      deleteSelected,           // 删除选中元素
-      setZoom,                  // 设置缩放
-      panBy,                    // 平移画布
-      setInteractionMode,       // 设置交互模式
-      undo,                     // 撤销
-      redo,                     // 重做
-      registerApp,              // 注册 PIXI 应用
-      exportAsImage,            // 导出图片
-      copy,                     // 复制
-      paste,                    // 粘贴
+      // 当前画布状态
+      state,
+      // 元素操作方法
+      addShape,
+      addText,
+      addImage,
+      updateElement,
+      updateSelectedElements,
+      mutateElements,
+      // 选择操作方法
+      setSelection,
+      clearSelection,
+      deleteSelected,
+      // 视图操作方法
+      setZoom,
+      panBy,
+      setInteractionMode,
+      // 历史操作方法
+      undo,
+      redo,
+      // 应用操作方法
+      registerApp,
+      exportAsImage,
+      // 剪贴板操作方法
+      copy,
+      paste,
     }),
     [
       state,
@@ -485,17 +799,32 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     ]
   )
 
-  // 提供上下文值给子组件
   return (
     <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>
   )
 }
 
-// 自定义 Hook：用于在组件中访问画布上下文
+/**
+ * Canvas上下文Hook
+ * 
+ * @function useCanvas
+ * @returns {CanvasContextValue} 画布上下文值
+ * @throws {Error} 如果在CanvasProvider外部使用会抛出错误
+ * 
+ * @description 
+ * 用于在组件中访问画布状态和方法的Hook：
+ * 1. 通过useContext获取CanvasContext的值
+ * 2. 检查是否在CanvasProvider内部使用
+ * 3. 提供类型安全的上下文访问方式
+ * 4. 是所有画布相关组件访问状态的标准入口
+ */
 export const useCanvas = () => {
+  // 获取CanvasContext的当前值
   const context = useContext(CanvasContext)
+  // 确保Hook在Provider内部使用
   if (!context) {
     throw new Error("useCanvas must be used within CanvasProvider")
   }
+  // 返回上下文值，包含所有状态和方法
   return context
 }
