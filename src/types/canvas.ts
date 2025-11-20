@@ -60,6 +60,7 @@ export interface CanvasState {
 
 export interface CanvasContextValue {
   state: CanvasState
+  isInitialized: boolean // 用于判断是否已经初始化
   addShape: (shape: ShapeVariant) => void
   addText: (text?: string) => void
   addImage: (src: string, size?: { width: number; height: number }) => void

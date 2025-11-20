@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 import {
   Application,
   Container,
@@ -247,6 +247,7 @@ export const PixiCanvas = () => {
 
   const {
     state,
+    isInitialized, // 获取初始状态
     setSelection,
     clearSelection,
     mutateElements,
@@ -281,6 +282,15 @@ export const PixiCanvas = () => {
   const selectionBoxRef = useRef<Graphics | null>(null) // reference to the selection box graphics object
   const isSelectedRef = useRef(false); // reference to the selection state, default as false 
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // reference to the start point of the selection box
+
+  const [renderPage, setRenderPage] = useState(0); // 用于触发页面渲染
+
+  useEffect(() => {
+    if (isInitialized && state.elements.length > 0) {
+      // 初始化成功，进行渲染
+      setRenderPage(prev => prev + 1)
+    }
+  }, [isInitialized, state.elements.length])
 
   useEffect(() => {
     stateRef.current = state
@@ -390,6 +400,11 @@ export const PixiCanvas = () => {
       contentRef.current = content
       backgroundRef.current = background
       registerApp(app)
+
+      // 立即渲染现有元素
+      if (stateRef.current.elements.length > 0) {
+        renderElements(content, stateRef.current.elements, stateRef.current)
+      }
 
       const resizeObserver = new ResizeObserver(() => {
         app.resize()
@@ -604,7 +619,7 @@ export const PixiCanvas = () => {
         handleGlobalWheel = null
       }
     }
-  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection])
+  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection, renderPage])
 
   const handleElementPointerDown = useCallback(
     (event: FederatedPointerEvent, elementId: string) => {
@@ -677,6 +692,157 @@ export const PixiCanvas = () => {
     []
   )
 
+  // 添加 renderElements 函数
+  const renderElements = useCallback((
+    content: Container, 
+    elements: CanvasElement[], 
+    currentState: typeof state
+  ) => {
+    content.removeChildren().forEach((child) => child.destroy({ children: true }))
+    content.sortableChildren = true
+    
+    elements.forEach((element) => {
+      const selected = state.selectedIds.includes(element.id)
+      const node = createShape(element, state.interactionMode, (event) =>
+        handleElementPointerDown(event, element.id)
+      )
+      node.zIndex = 1
+      content.addChild(node)
+      
+      // 处理选中状态的调整手柄
+      if (
+        selected &&
+        currentState.selectedIds.length === 1 &&
+        currentState.interactionMode === "select"
+      ) {
+        const handlesLayer = new Container()
+        handlesLayer.sortableChildren = true
+        handlesLayer.zIndex = 10
+        handlesLayer.position.set(element.x, element.y)
+        handlesLayer.angle = element.rotation
+        const handleSize = Math.max(6, 10 / currentState.zoom)
+        const edgeThickness = Math.max(16 / currentState.zoom, handleSize * 1.6)
+        const activeDirection = resizeRef.current?.direction ?? null
+
+        const drawHandle = (
+          target: Graphics,
+          direction: ResizeDirection,
+          opts: { hovered: boolean; active: boolean }
+        ) => {
+          const { hovered, active } = opts
+          const isHighlighted = hovered || active
+          const fill = isHighlighted ? HANDLE_ACTIVE_COLOR : 0xffffff
+          const stroke = isHighlighted ? HANDLE_ACTIVE_COLOR : SELECTION_COLOR
+          target.clear()
+          if (direction === "n" || direction === "s") {
+            target.roundRect(
+              -handleSize,
+              -handleSize / 2,
+              handleSize * 2,
+              handleSize,
+              4
+            )
+          } else if (direction === "e" || direction === "w") {
+            target.roundRect(
+              -handleSize / 2,
+              -handleSize,
+              handleSize,
+              handleSize * 2,
+              4
+            )
+          } else {
+            target.roundRect(
+              -handleSize / 2,
+              -handleSize / 2,
+              handleSize,
+              handleSize,
+              4
+            )
+          }
+          target.fill({ color: fill })
+          target.stroke({ width: active ? 1.6 : 1, color: stroke })
+        }
+
+        RESIZE_DIRECTIONS.forEach((direction) => {
+          const handle = new Graphics()
+          handle.eventMode = "static"
+          handle.cursor = RESIZE_CURSORS[direction]
+          handle.zIndex = 2
+          let hovered = false
+          const isActive = activeDirection === direction
+          const updateStyle = (forcedActive?: boolean) =>
+            drawHandle(handle, direction, {
+              hovered,
+              active: forcedActive ?? isActive,
+            })
+          updateStyle()
+          const pos = getHandlePosition(direction, element.width, element.height)
+          handle.position.set(pos.x, pos.y)
+          handle.visible = !activeDirection || isActive
+
+          switch (direction) {
+            case "n":
+              handle.hitArea = new Rectangle(
+                -element.width / 2,
+                -edgeThickness,
+                element.width,
+                edgeThickness * 2
+              )
+              break
+            case "s":
+              handle.hitArea = new Rectangle(
+                -element.width / 2,
+                -edgeThickness,
+                element.width,
+                edgeThickness * 2
+              )
+              break
+            case "e":
+              handle.hitArea = new Rectangle(
+                -edgeThickness,
+                -element.height / 2,
+                edgeThickness * 2,
+                element.height
+              )
+              break
+            case "w":
+              handle.hitArea = new Rectangle(
+                -edgeThickness,
+                -element.height / 2,
+                edgeThickness * 2,
+                element.height
+              )
+              break
+            default:
+              handle.hitArea = new Rectangle(
+                -edgeThickness / 2,
+                -edgeThickness / 2,
+                edgeThickness,
+                edgeThickness
+              )
+              break
+          }
+
+          handle.on("pointerdown", (event) => {
+            hovered = true
+            updateStyle(true)
+            handleResizeStart(event, state.selectedIds, direction)
+          })
+          handle.on("pointerover", () => {
+            hovered = true
+            if (!isActive) updateStyle()
+          })
+          handle.on("pointerout", () => {
+            hovered = false
+            if (!isActive) updateStyle()
+          })
+          handlesLayer.addChild(handle)
+        })
+        content.addChild(handlesLayer)
+      }
+    })
+  }, [handleElementPointerDown, handleResizeStart, state.interactionMode, state.selectedIds])
+
   const handleSelectionBoxPointerDown = useCallback(
     (event: FederatedPointerEvent) => {
       event.stopPropagation()
@@ -709,6 +875,10 @@ export const PixiCanvas = () => {
     const content = contentRef.current
     const app = appRef.current
     if (!content || !app) return
+
+    // 0. 渲染页面，并且是立即渲染，而不是用户交互触发的
+    renderElements(content, state.elements, state)
+
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     content.sortableChildren = true
     
@@ -925,6 +1095,7 @@ export const PixiCanvas = () => {
       }
     }
   }, [
+    state,
     state.elements,
     state.selectedIds,
     state.interactionMode,
@@ -932,6 +1103,8 @@ export const PixiCanvas = () => {
     handleElementPointerDown,
     handleResizeStart,
     handleSelectionBoxPointerDown,
+    renderElements,
+    renderPage,
   ])
 
   useEffect(() => {

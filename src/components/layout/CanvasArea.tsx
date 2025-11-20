@@ -71,7 +71,7 @@ export const CanvasArea = () => {
       window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [setInteractionMode,copy,paste])
+  }, [setInteractionMode,copy,paste,deleteSelected])
 
   return (
     <main className="relative flex-1 overflow-hidden bg-canvas-background">

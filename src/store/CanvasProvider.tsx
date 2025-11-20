@@ -6,6 +6,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  useState,
 } from "react"
 import type { ReactNode } from "react"
 import type { Application } from "pixi.js"
@@ -41,20 +42,27 @@ const baseState: CanvasState = {
 const getInitialState = (): CanvasState => {
   const fallback = deepCopy(baseState)
   if (typeof window === "undefined") return fallback
+
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (!stored) return fallback
+
     const parsed = JSON.parse(stored)
+
+    // 状态恢复
     return {
       ...fallback,
       elements: Array.isArray(parsed?.elements) ? parsed.elements : [],
+      selectedIds: Array.isArray(parsed?.selectedIds) ? parsed.selectedIds : [],
       pan:
         parsed?.pan && typeof parsed.pan.x === "number" && typeof parsed.pan.y === "number"
           ? parsed.pan
           : fallback.pan,
       zoom: typeof parsed?.zoom === "number" ? parsed.zoom : fallback.zoom,
+      interactionMode: parsed?.interactionMode || fallback.interactionMode,
     }
-  } catch {
+  } catch (error) {
+    console.error("Failed to load canvas state from local storage", error)
     return fallback
   }
 }
@@ -145,6 +153,7 @@ const CanvasContext = createContext<CanvasContextValue | null>(null)
 export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const [state, dispatch] = useReducer(canvasReducer, undefined, getInitialState)
   const appRef = useRef<Application | null>(null)
+  const [isInitialized] = useState(true)
 
   //useRef作为内部剪切板
   const clipboardRef = useRef<CanvasElement[]>([])
@@ -366,19 +375,26 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     return canvas?.toDataURL("image/png") ?? null
   }, [])
 
+
+  // 自动保存，需要保存的状态
   useEffect(() => {
-    if (typeof window === "undefined") return
+    if (typeof window === "undefined" || !isInitialized) return
+
     const payload = JSON.stringify({
       elements: state.elements,
+      selectedIds: state.selectedIds,
       pan: state.pan,
       zoom: state.zoom,
+      interactionMode: state.interactionMode,
+      // 不保存 history 和 redoStack，避免数据量过大
     })
     window.localStorage.setItem(STORAGE_KEY, payload)
-  }, [state.elements, state.pan, state.zoom])
+  }, [state.elements, state.selectedIds, state.pan, state.zoom, state.interactionMode, isInitialized])
 
   const value = useMemo<CanvasContextValue>(
     () => ({
       state,
+      isInitialized, // 有关初始化状态的标记
       addShape,
       addText,
       addImage,
@@ -400,6 +416,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     }),
     [
       state,
+      isInitialized, // 有关初始化状态的标记
       addShape,
       addText,
       addImage,
