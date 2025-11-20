@@ -126,11 +126,12 @@ const createShape = (
           )
           break
         case "circle": {
-          const radius = Math.max(
-            Math.min(element.width, element.height) / 2,
-            0
+          target.ellipse(
+            element.width / 2,
+            element.height / 2,
+            element.width / 2,
+            element.height / 2
           )
-          target.circle(element.width / 2, element.height / 2, radius)
           break
         }
         case "triangle":
@@ -148,10 +149,18 @@ const createShape = (
 
     if (element.strokeWidth > 0) {
       drawPath(stroke)
+      // 修复：确保描边宽度不会超过图形的最小尺寸，防止溢出
+      const safeStrokeWidth = Math.min(
+        element.strokeWidth,
+        Math.abs(element.width),
+        Math.abs(element.height)
+      )
+
       stroke.stroke({
-        width: element.strokeWidth,
+        width: safeStrokeWidth,
         color: strokeColor,
         alignment: 1,
+        join: "round",
       })
       container.addChild(stroke)
     }
