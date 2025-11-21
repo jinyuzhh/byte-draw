@@ -21,356 +21,28 @@ import {
   Application,
   Container,
   Graphics,
-  Sprite,
-  Text,
-  TextStyle,
-  BlurFilter,
-  ColorMatrixFilter,
   FederatedPointerEvent,
   Rectangle,
-  Assets,
 } from "pixi.js"
-import type { TextStyleFontWeight } from "pixi.js"
 import { useCanvas } from "../../store/CanvasProvider"
 import type { CanvasElement } from "../../types/canvas"
-
-// 调整大小的方向类型定义
-type ResizeDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw"
-
-// 所有可能的调整大小方向数组
-const RESIZE_DIRECTIONS: ResizeDirection[] = [
-  "n",   // 北
-  "ne",  // 东北
-  "e",   // 东
-  "se",  // 东南
-  "s",   // 南
-  "sw",  // 西南
-  "w",   // 西
-  "nw",  // 西北
-]
-
-// 不同调整方向对应的鼠标指针样式
-const RESIZE_CURSORS: Record<ResizeDirection, string> = {
-  n: "ns-resize",      // 南北调整
-  ne: "nesw-resize",   // 东北-西南调整
-  e: "ew-resize",      // 东西调整
-  se: "nwse-resize",   // 西北-东南调整
-  s: "ns-resize",      // 南北调整
-  sw: "nesw-resize",   // 东北-西南调整
-  w: "ew-resize",      // 东西调整
-  nw: "nwse-resize",   // 西北-东南调整
-}
-
-// 元素最小尺寸限制
-const MIN_ELEMENT_SIZE = 0
-
-const SELECTION_COLOR = 0x39b5ff
-
-// 调整大小手柄激活状态颜色（青色）
-const HANDLE_ACTIVE_COLOR = 0x00cae0
-
-const getBoundingBox = (elements: CanvasElement[]) => {
-  if (elements.length === 0) return null
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-
-  elements.forEach((el) => {
-    minX = Math.min(minX, el.x)
-    minY = Math.min(minY, el.y)
-    maxX = Math.max(maxX, el.x + el.width)
-    maxY = Math.max(maxY, el.y + el.height)
-  })
-
-  return {
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
-  }
-}
-
-/**
- * 将十六进制颜色字符串转换为数字
- * 
- * @function hexToNumber
- * @param {string} value - 十六进制颜色字符串（如 "#FF0000"）
- * @returns {number} 转换后的数字颜色值
- */
-const hexToNumber = (value: string) =>
-  Number.parseInt(value.replace("#", ""), 16)
-
-/**
- * 深度克隆元素数组（深拷贝）
- * 
- * @function cloneElements
- * @param {CanvasElement[]} elements - 要克隆的元素数组
- * @returns {CanvasElement[]} 克隆后的元素数组
- * 
- * @description 
- * 优先使用 structuredClone API，如果不可用则使用 JSON 方法作为后备。
- * 确保返回的数组与原数组完全独立，修改不会影响原数组。
- */
-const cloneElements = (elements: CanvasElement[]) => {
-  if (typeof structuredClone === "function") {
-    return structuredClone(elements)
-  }
-  return JSON.parse(JSON.stringify(elements))
-}
-
-/**
- * 深度克隆单个元素
- * 
- * @function cloneElement
- * @param {CanvasElement} element - 要克隆的元素
- * @returns {CanvasElement} 克隆后的元素
- */
-const cloneElement = (element: CanvasElement): CanvasElement =>
-  cloneElements([element])[0]
-
-/**
- * 获取调整大小手柄的位置
- * 
- * @function getHandlePosition
- * @param {ResizeDirection} direction - 调整方向
- * @param {number} width - 元素宽度
- * @param {number} height - 元素高度
- * @returns {{x: number, y: number}} 手柄相对于元素左上角的位置
- * 
- * @description 
- * 根据调整方向计算手柄在元素边界上的位置。
- * 例如，北方向的手柄位于顶部中央，东北方向的手柄位于右上角。
- */
-const getHandlePosition = (
-  direction: ResizeDirection,
-  width: number,
-  height: number
-) => {
-  switch (direction) {
-    case "n":   // 北：顶部中央
-      return { x: width / 2, y: 0 }
-    case "e":   // 东：右侧中央
-      return { x: width, y: height / 2 }
-    case "s":   // 南：底部中央
-      return { x: width / 2, y: height }
-    case "w":   // 西：左侧中央
-      return { x: 0, y: height / 2 }
-    case "nw":  // 西北：左上角
-      return { x: 0, y: 0 }
-    case "ne":  // 东北：右上角
-      return { x: width, y: 0 }
-    case "se":  // 东南：右下角
-      return { x: width, y: height }
-    case "sw":  // 西南：左下角
-      return { x: 0, y: height }
-    default:
-      return { x: width, y: height }
-  }
-}
-
-/**
- * 创建画布元素的 PixiJS 可视化表示
- * 
- * @function createShape
- * @param {CanvasElement} element - 要渲染的画布元素
- * @param {boolean} selected - 元素是否被选中
- * @param {"select" | "pan"} interactionMode - 当前交互模式
- * @param {Function} onPointerDown - 指针按下事件处理函数
- * @returns {Container} 包含元素可视化表示的容器
- * 
- * @description 
- * 根据元素类型创建相应的 PixiJS 对象并添加到容器中。
- * 支持的元素类型包括：形状（矩形、圆形、三角形）、文本和图像。
- * 如果元素被选中，会添加选中框轮廓。
- */
-const createShape = async (
-  element: CanvasElement,
-  interactionMode: "select" | "pan",
-  onPointerDown: (event: FederatedPointerEvent) => void
-) => {
-  // 创建元素容器，用于组合多个图形对象
-  const container = new Container()
-  
-  // 设置元素的基本属性
-  container.position.set(element.x, element.y)  // 位置
-  container.angle = element.rotation            // 旋转角度
-  container.alpha = element.opacity             // 透明度
-  
-  // 设置交互属性
-  container.eventMode = "static"                // 启用事件交互
-  container.cursor = interactionMode === "select" ? "move" : "grab"  // 根据模式设置鼠标样式
-  container.hitArea = new Rectangle(0, 0, element.width, element.height)  // 设置点击区域
-
-  // 处理形状类型元素（矩形、圆形、三角形）
-  if (element.type === "shape") {
-    // 创建填充和描边图形对象
-    const fill = new Graphics()
-    const stroke = new Graphics()
-    const mask = new Graphics()
-    const fillColor = hexToNumber(element.fill)
-    const strokeColor = hexToNumber(element.stroke)
-
-    /**
-     * 根据形状类型绘制路径
-     * 
-     * @function drawPath
-     * @param {Graphics} target - 要绘制路径的图形对象
-     */
-    const drawPath = (target: Graphics) => {
-      switch (element.shape) {
-        case "rectangle":  // 矩形
-          target.roundRect(
-            0,
-            0,
-            element.width,
-            element.height,
-            Math.max(element.cornerRadius, 0)  // 确保圆角半径不为负
-          )
-          break
-        case "circle": {
-          target.ellipse(
-            element.width / 2,
-            element.height / 2,
-            element.width / 2,
-            element.height / 2
-          )
-          break
-        }
-        case "triangle":  // 三角形
-          target.moveTo(element.width / 2, 0)        // 顶点
-          target.lineTo(element.width, element.height)  // 右下角
-          target.lineTo(0, element.height)             // 左下角
-          target.closePath()  // 闭合路径
-          break
-      }
-    }
-
-    // Mask keeps the visible stroke inside the shape without changing stroke alignment.
-    drawPath(mask)
-    mask.fill({ color: 0xffffff, alpha: 1 })
-    mask.alpha = 0
-    mask.eventMode = "none"
-    container.addChild(mask)
-    container.mask = mask
-
-    drawPath(fill)
-    fill.fill({ color: fillColor, alpha: 1 })
-    container.addChild(fill)
-
-    // 如果有描边，绘制描边部分
-    if (element.strokeWidth > 0) {
-      drawPath(stroke)
-      // Clamp stroke so it never exceeds half of the smallest dimension to avoid distortion.
-      const halfMinSize =
-        Math.min(Math.abs(element.width), Math.abs(element.height)) / 2
-      const safeStrokeWidth = Math.max(
-        0,
-        Math.min(element.strokeWidth, halfMinSize)
-      )
-
-      if (safeStrokeWidth > 0) {
-        stroke.stroke({
-          width: safeStrokeWidth,
-          color: strokeColor,
-          alignment: 1,
-          join: "round",
-        })
-        container.addChild(stroke)
-      }
-    }
-  }
-
-  // 处理文本类型元素
-  if (element.type === "text") {
-    // 如果背景色不是透明，绘制背景
-    if (element.background !== "transparent") {
-      const bg = new Graphics()
-      bg.roundRect(0, 0, element.width, element.height, 12)  // 圆角背景
-      bg.fill({ color: hexToNumber(element.background), alpha: 0.8 })
-      container.addChild(bg)
-    }
-    
-    // 创建文本对象
-    const text = new Text({
-      text: element.text,
-      style: new TextStyle({
-        fontFamily: element.fontFamily,
-        fontSize: element.fontSize,
-        fontWeight: `${element.fontWeight}` as TextStyleFontWeight,
-        fill: element.color,
-        align: element.align,
-        lineHeight: element.fontSize * element.lineHeight,
-        wordWrap: true,           // 启用自动换行
-        wordWrapWidth: element.width,  // 换行宽度
-      }),
-    })
-    text.position.set(12, 12)  // 设置文本内边距
-    container.addChild(text)
-  }
-
-  // 处理图像类型元素
-  if (element.type === "image") {
-    // 从图像源创建纹理
-    const texture = await Assets.load(element.src)
-    // console.log(element.src)
-    const sprite = new Sprite(texture)
-    
-    // 设置精灵属性
-    sprite.eventMode = "none"  // 禁用精灵的事件交互（由容器处理）
-    sprite.width = element.width
-    sprite.height = element.height
-    
-    // 创建圆角遮罩
-    const mask = new Graphics()
-    mask.roundRect(0, 0, element.width, element.height, element.borderRadius)
-    mask.fill({ color: 0xffffff })
-    mask.alpha = 0  // 遮罩本身不可见
-    mask.eventMode = "none"
-    sprite.mask = mask  // 应用遮罩
-    
-    // 处理图像滤镜效果
-    const filters = []
-    
-    // 模糊滤镜
-    if (element.filters.blur > 0) {
-      filters.push(new BlurFilter({ strength: element.filters.blur }))
-    }
-    
-    // 灰度和亮度滤镜
-    if (element.filters.grayscale || element.filters.brightness !== 1) {
-      const colorMatrix = new ColorMatrixFilter()
-      
-      // 灰度效果
-      if (element.filters.grayscale) {
-        // colorMatrix.greyscale(1, false)
-        const gray = new ColorMatrixFilter();
-        gray.greyscale(0.5, false);
-        filters.push(gray)        
-      }
-      
-      // 亮度调整
-      if (element.filters.brightness !== 1) {
-        colorMatrix.brightness(element.filters.brightness, false)
-      }
-      
-      filters.push(colorMatrix)
-    }
-    
-    sprite.filters = filters.length ? filters : undefined;
-
-    // 将遮罩和精灵添加到容器
-    container.addChild(mask)
-    container.addChild(sprite)
-  }
-
-  // 在选择模式下，为容器添加指针按下事件监听
-  if (interactionMode === "select") {
-    container.on("pointerdown", onPointerDown)
-  }
-
-  return container
-}
+import {
+  MIN_ELEMENT_SIZE,
+  SELECTION_COLOR,
+  type ResizeDirection,
+} from "./pixiConstants"
+import {
+  cloneElement,
+  cloneElements,
+  getBoundingBox,
+} from "./pixiUtils"
+import {
+  createBoundsHandlesLayer,
+  createMultiSelectionBox,
+  createResizeHandlesLayer,
+  createSelectionOutline,
+  createShape,
+} from "./pixiRenderers"
 
 /**
  * PixiCanvas 画布组件
@@ -962,141 +634,13 @@ export const PixiCanvas = () => {
         currentState.selectedIds.length === 1 &&
         currentState.interactionMode === "select"
       ) {
-        // 创建控制柄容器
-        const handlesLayer = new Container()
-        handlesLayer.sortableChildren = true
-        handlesLayer.zIndex = 10
-        handlesLayer.position.set(element.x, element.y)
-        handlesLayer.angle = element.rotation
-        // 根据缩放级别调整控制柄大小
-        const handleSize = Math.max(6, 10 / currentState.zoom)
-        const edgeThickness = Math.max(16 / currentState.zoom, handleSize * 1.6)
-        const activeDirection = resizeRef.current?.direction ?? null
-
-        // 绘制调整大小控制柄
-        const drawHandle = (
-          target: Graphics,
-          direction: ResizeDirection,
-          opts: { hovered: boolean; active: boolean }
-        ) => {
-          const { hovered, active } = opts
-          const isHighlighted = hovered || active
-          const fill = isHighlighted ? HANDLE_ACTIVE_COLOR : 0xffffff
-          const stroke = isHighlighted ? HANDLE_ACTIVE_COLOR : SELECTION_COLOR
-          target.clear()
-          
-          // 根据方向绘制不同形状的控制柄
-          if (direction === "n" || direction === "s") {
-            // 南北方向：水平矩形
-            target.roundRect(
-              -handleSize,
-              -handleSize / 2,
-              handleSize * 2,
-              handleSize,
-              4
-            )
-          } else if (direction === "e" || direction === "w") {
-            // 东西方向：垂直矩形
-            target.roundRect(
-              -handleSize / 2,
-              -handleSize,
-              handleSize,
-              handleSize * 2,
-              4
-            )
-          } else {
-            // 角落方向：正方形
-            target.roundRect(
-              -handleSize / 2,
-              -handleSize / 2,
-              handleSize,
-              handleSize,
-              4
-            )
-          }
-          target.fill({ color: fill })
-          target.stroke({ width: active ? 1.6 : 1, color: stroke })
-        }
-
-        // 为每个方向创建调整大小控制柄
-        RESIZE_DIRECTIONS.forEach((direction) => {
-          const handle = new Graphics()
-          handle.eventMode = "static"
-          handle.cursor = RESIZE_CURSORS[direction]  // 设置对应方向的光标样式
-          handle.zIndex = 2
-          let hovered = false
-          const isActive = activeDirection === direction
-          const updateStyle = (forcedActive?: boolean) =>
-            drawHandle(handle, direction, {
-              hovered,
-              active: forcedActive ?? isActive,
-            })
-          updateStyle()
-          // 计算控制柄位置
-          const pos = getHandlePosition(direction, element.width, element.height)
-          handle.position.set(pos.x, pos.y)
-          // 只显示当前活动的控制柄或所有控制柄
-          handle.visible = !activeDirection || isActive
-
-          // 设置控制柄的交互区域（比视觉区域更大，便于操作）
-          switch (direction) {
-            case "n":
-              handle.hitArea = new Rectangle(
-                -element.width / 2,
-                -edgeThickness,
-                element.width,
-                edgeThickness * 2
-              )
-              break
-            case "s":
-              handle.hitArea = new Rectangle(
-                -element.width / 2,
-                -edgeThickness,
-                element.width,
-                edgeThickness * 2
-              )
-              break
-            case "e":
-              handle.hitArea = new Rectangle(
-                -edgeThickness,
-                -element.height / 2,
-                edgeThickness * 2,
-                element.height
-              )
-              break
-            case "w":
-              handle.hitArea = new Rectangle(
-                -edgeThickness,
-                -element.height / 2,
-                edgeThickness * 2,
-                element.height
-              )
-              break
-            default:
-              handle.hitArea = new Rectangle(
-                -edgeThickness / 2,
-                -edgeThickness / 2,
-                edgeThickness,
-                edgeThickness
-              )
-              break
-          }
-          // 控制柄事件处理
-          handle.on("pointerdown", (event) => {
-            hovered = true
-            updateStyle(true)
-            handleResizeStart(event, state.selectedIds, direction)
-          })
-          handle.on("pointerover", () => {
-            hovered = true
-            if (!isActive) updateStyle()
-          })
-          handle.on("pointerout", () => {
-            hovered = false
-            if (!isActive) updateStyle()
-          })
-          handlesLayer.addChild(handle)
-        })
+        const handlesLayer = createResizeHandlesLayer(
+          element,
+          currentState.zoom,
+          resizeRef.current?.direction ?? null,
+          state.selectedIds,
+          handleResizeStart
+        )
         content.addChild(handlesLayer)
       }
     })
@@ -1151,12 +695,7 @@ export const PixiCanvas = () => {
       content.addChild(node)
 
       if (selected) {
-        const outline = new Graphics()
-        outline.roundRect(0, 0, element.width, element.height, 2)
-        outline.stroke({ width: 1.4, color: SELECTION_COLOR, alpha: 1 })
-        outline.position.set(element.x, element.y)
-        outline.angle = element.rotation
-        outline.zIndex = 2
+        const outline = createSelectionOutline(element)
         content.addChild(outline)
       }
     })
@@ -1188,169 +727,21 @@ export const PixiCanvas = () => {
 
       // 绘制多选包围盒
       if (isMultiSelection) {
-        const box = new Graphics()
-        const dash = 5
-        const gap = 3
-        
-        const drawDashedLine = (x1: number, y1: number, x2: number, y2: number) => {
-           const dx = x2 - x1
-           const dy = y2 - y1
-           const len = Math.sqrt(dx*dx + dy*dy)
-           const count = Math.floor(len / (dash + gap))
-           const dashX = dx / len * dash
-           const dashY = dy / len * dash
-           const gapX = dx / len * gap
-           const gapY = dy / len * gap
-           
-           let cx = x1
-           let cy = y1
-           
-           for (let i = 0; i < count; i++) {
-             box.moveTo(cx, cy)
-             box.lineTo(cx + dashX, cy + dashY)
-             cx += dashX + gapX
-             cy += dashY + gapY
-           }
-           if (Math.sqrt((x2-cx)*(x2-cx) + (y2-cy)*(y2-cy)) > 0) {
-              box.moveTo(cx, cy)
-              box.lineTo(x2, y2)
-           }
-        }
-        
-        drawDashedLine(0, 0, bounds.width, 0)
-        drawDashedLine(bounds.width, 0, bounds.width, bounds.height)
-        drawDashedLine(bounds.width, bounds.height, 0, bounds.height)
-        drawDashedLine(0, bounds.height, 0, 0)
-
-        box.stroke({ width: 2, color: SELECTION_COLOR, alpha: 1 })
-        box.position.set(bounds.x, bounds.y)
-        box.zIndex = 3
-        
-        // Make box interactive for dragging
-        box.eventMode = "static"
-        box.cursor = "move"
-        box.hitArea = new Rectangle(0, 0, bounds.width, bounds.height)
-        box.on("pointerdown", handleSelectionBoxPointerDown)
-
+        const box = createMultiSelectionBox(bounds, handleSelectionBoxPointerDown)
         content.addChild(box)
       }
 
       // 绘制控制点
       if (!dragRef.current?.moved) {
-      const handlesLayer = new Container()
-      handlesLayer.sortableChildren = true
-      handlesLayer.zIndex = 10
-      handlesLayer.position.set(bounds.x, bounds.y)
-      handlesLayer.angle = bounds.rotation
-
-      const handleSize = Math.max(6, 10 / state.zoom)
-      const edgeThickness = Math.max(16 / state.zoom, handleSize * 1.6)
-      const activeDirection = resizeRef.current?.direction ?? null
-
-      // 确定显示的控制点方向
-      const directions = isMultiSelection
-        ? (["nw", "ne", "sw", "se"] as ResizeDirection[])
-        : RESIZE_DIRECTIONS
-
-      const drawHandle = (
-        target: Graphics,
-        direction: ResizeDirection,
-        opts: { hovered: boolean; active: boolean }
-      ) => {
-        const { hovered, active } = opts
-        const isHighlighted = hovered || active
-        const fill = isHighlighted ? HANDLE_ACTIVE_COLOR : 0xffffff
-        const stroke = isHighlighted ? HANDLE_ACTIVE_COLOR : SELECTION_COLOR
-        target.clear()
-        
-        // 只有单选且非角点时才绘制长条形，多选只绘制方形点
-        if (!isMultiSelection && (direction === "n" || direction === "s")) {
-          target.roundRect(-handleSize, -handleSize / 2, handleSize * 2, handleSize, 4)
-        } else if (!isMultiSelection && (direction === "e" || direction === "w")) {
-          target.roundRect(-handleSize / 2, -handleSize, handleSize, handleSize * 2, 4)
-        } else {
-          target.roundRect(-handleSize / 2, -handleSize / 2, handleSize, handleSize, 4)
-        }
-        
-        target.fill({ color: fill })
-        target.stroke({ width: active ? 1.6 : 1, color: stroke })
-      }
-
-      directions.forEach((direction) => {
-        const handle = new Graphics()
-        handle.eventMode = "static"
-        handle.cursor = RESIZE_CURSORS[direction]
-        handle.zIndex = 2
-        let hovered = false
-        const isActive = activeDirection === direction
-        
-        const updateStyle = (forcedActive?: boolean) =>
-          drawHandle(handle, direction, {
-            hovered,
-            active: forcedActive ?? isActive,
-          })
-        
-        updateStyle()
-        
-        const pos = getHandlePosition(direction, bounds.width, bounds.height)
-        handle.position.set(pos.x, pos.y)
-        handle.visible = !activeDirection || isActive
-
-        // HitArea 逻辑
-        if (isMultiSelection) {
-             handle.hitArea = new Rectangle(
-                -edgeThickness / 2,
-                -edgeThickness / 2,
-                edgeThickness,
-                edgeThickness
-              )
-        } else {
-             switch (direction) {
-                case "n":
-                case "s":
-                  handle.hitArea = new Rectangle(
-                    -bounds.width / 2,
-                    -edgeThickness,
-                    bounds.width,
-                    edgeThickness * 2
-                  )
-                  break
-                case "e":
-                case "w":
-                  handle.hitArea = new Rectangle(
-                    -edgeThickness,
-                    -bounds.height / 2,
-                    edgeThickness * 2,
-                    bounds.height
-                  )
-                  break
-                default:
-                  handle.hitArea = new Rectangle(
-                    -edgeThickness / 2,
-                    -edgeThickness / 2,
-                    edgeThickness,
-                    edgeThickness
-                  )
-                  break
-             }
-        }
-
-        handle.on("pointerdown", (event) => {
-          hovered = true
-          updateStyle(true)
-          handleResizeStart(event, state.selectedIds, direction)
+        const handlesLayer = createBoundsHandlesLayer({
+          bounds,
+          zoom: state.zoom,
+          activeDirection: resizeRef.current?.direction ?? null,
+          isMultiSelection,
+          selectedIds: state.selectedIds,
+          handleResizeStart,
         })
-        handle.on("pointerover", () => {
-          hovered = true
-          if (!isActive) updateStyle()
-        })
-        handle.on("pointerout", () => {
-          hovered = false
-          if (!isActive) updateStyle()
-        })
-        handlesLayer.addChild(handle)
-      })
-      content.addChild(handlesLayer)
+        content.addChild(handlesLayer)
       }
     }
   }, [

@@ -1,49 +1,6 @@
-/**
- * @fileoverview 顶部工具栏组件
- * @file /Volumes/DreamZero/code/project/bytedance-canvas/src/components/layout/TopBar.tsx
- * 
- * @description 
- * 顶部工具栏组件，提供画布编辑器的全局控制功能。
- * 该组件提供以下功能：
- * 1. 显示应用标题和版本信息
- * 2. 提供交互模式切换（选择/移动）
- * 3. 提供撤销/重做操作
- * 4. 提供画布缩放控制
- * 5. 提供画布导出为PNG图片功能
- * 
- * @author Canvas Team
- * @version 1.0.0
- */
-
 import { useCallback } from "react"
 import { useCanvas } from "../../store/CanvasProvider"
 
-/**
- * 控制按钮组件
- * 
- * @component ControlButton
- * 
- * @description 
- * 顶部工具栏中的通用控制按钮，支持激活状态显示。
- * 根据激活状态应用不同的样式，提供视觉反馈。
- * 
- * @param {Object} props - 组件属性
- * @param {boolean} [props.active=false] - 按钮是否处于激活状态
- * @param {string} props.label - 按钮显示的文本标签
- * @param {Function} [props.onClick] - 按钮点击事件处理函数
- * 
- * @returns {JSX.Element} 返回控制按钮组件
- * 
- * @example
- * ```tsx
- * // 使用示例
- * <ControlButton 
- *   active={isActive} 
- *   label="选择" 
- *   onClick={handleSelect} 
- * />
- * ```
- */
 const ControlButton = ({
   active,
   label,
@@ -66,23 +23,6 @@ const ControlButton = ({
   </button>
 )
 
-/**
- * 顶部工具栏组件
- * 
- * @component TopBar
- * 
- * @description 
- * 画布编辑器的顶部工具栏，提供全局控制功能。
- * 包含应用标题、交互模式切换、撤销/重做操作、缩放控制和导出功能。
- * 
- * @returns {JSX.Element} 返回顶部工具栏组件
- * 
- * @example
- * ```tsx
- * // 使用示例
- * <TopBar />
- * ```
- */
 export const TopBar = () => {
   // 从画布状态管理中获取所需的状态和方法
   const {
@@ -94,21 +34,7 @@ export const TopBar = () => {
     exportAsImage,
   } = useCanvas()
 
-  /**
-   * 处理画布导出为PNG图片
-   * 
-   * @function handleExport
-   * 
-   * @description 
-   * 将当前画布内容导出为PNG图片并自动下载。
-   * 该函数执行以下步骤：
-   * 1. 调用 exportAsImage 方法获取画布的 Data URL
-   * 2. 创建临时下载链接元素
-   * 3. 设置下载文件名（包含时间戳）
-   * 4. 触发下载操作
-   * 
-   * @returns {void} 无返回值
-   */
+
   const handleExport = useCallback(() => {
     // 获取画布的 Data URL
     const dataUrl = exportAsImage()
@@ -132,7 +58,7 @@ export const TopBar = () => {
           MVP DEMO
         </p>
         <h1 className="text-lg font-semibold text-slate-900">
-          即梦画布 · 团队协作稿
+         My · Draw
         </h1>
       </div>
 
