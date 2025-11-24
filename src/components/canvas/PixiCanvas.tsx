@@ -105,13 +105,15 @@ export const PixiCanvas = () => {
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // reference to the start point of the selection box
 
   const [renderPage, setRenderPage] = useState(0); // 用于触发页面渲染
+  const [hasInitialized, setHasInitialized] = useState(false); // 用于判断是否已经初始化
 
   useEffect(() => {
-    if (isInitialized && state.elements.length > 0) {
+    if (isInitialized && !hasInitialized && state.elements.length > 0) {
       // 初始化成功，进行渲染
-      setRenderPage(prev => prev + 1)
+      setHasInitialized(true); // 已经初始化的，就不要再重复渲染了；尤其是新增元素时
+      setRenderPage(prev => prev + 1);
     }
-  }, [isInitialized, state.elements.length])
+  }, [isInitialized, hasInitialized, state.elements.length])
 
   // 同步状态到引用，确保在回调中获取最新状态
   useEffect(() => {
