@@ -683,7 +683,7 @@ export const PixiCanvas = () => {
     if (!content || !app) return
 
     // 0. 渲染页面，并且是立即渲染，而不是用户交互触发的
-    renderElements(content, state.elements, state)
+    // renderElements(content, state.elements, state)
 
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     content.sortableChildren = true

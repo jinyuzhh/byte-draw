@@ -490,6 +490,22 @@ const ImageControls = ({
 )
 
 /**
+ * 元素类型名称显示映射
+ */
+const getTypeDisplayName = (type: CanvasElement["type"] | null): string => {
+  switch (type) {
+    case "shape":
+      return "图形"
+    case "text":
+      return "文本"
+    case "image":
+      return "图片"
+    default:
+      return "元素"
+  }
+}
+
+/**
  * 右侧属性面板组件
  * 
  * @component RightPanel
@@ -512,6 +528,25 @@ export const RightPanel = () => {
   const selectedId = state.selectedIds[0]
   const selectedElement = state.elements.find((el) => el.id === selectedId)
 
+  // 一些功能辅助函数
+  // 检查选中的各元素是否具有相同的类型
+  const elementsHaveSameType = (elements: CanvasElement[], selectedId: string[]): boolean => {
+    if (selectedId.length === 0) return false
+    const selectedElement = elements.filter((el) => selectedId.includes(el.id))
+    if (selectedElement.length === 0) return false
+
+    const firstType = selectedElement[0].type
+    return selectedElement.every((el) => el.type === firstType)
+  }
+
+  // 获取选中元素的共同类型
+  const getCommonType = (elements: CanvasElement[], selectedId: string[]): CanvasElement["type"] | null => {
+    if (!elementsHaveSameType(elements, selectedId)) return null
+    const selectedElement = elements.filter((el) => selectedId.includes(el.id))
+    return selectedElement[0]?.type || null
+  }
+
+
   /**
    * 处理元素属性变更
    * 
@@ -525,12 +560,49 @@ export const RightPanel = () => {
    * 
    * @returns {void} 无返回值
    */
+
+  // 右侧属性面板，操作处理函数
+  // 支持单个元素属性更新
   const handleChange = (
     changes: Partial<CanvasElement>,
   ) => {
     if (!selectedElement) return
     updateElement(selectedElement.id, changes)
   }
+
+  // 支持多批量多种类型元素的部分属性更新操作
+  const handleLayoutChange = (changes: Partial<CanvasElement>) => {
+    if (state.elements.length === 0) return
+
+    // 批量更新
+    state.selectedIds.forEach((id) => {
+      updateElement(id, changes)
+    })
+  }
+
+  // 同类型多元素批量操作
+  // 批量处理图形元素
+  const handleShapesChange = (changes: Partial<ShapeElement>) => {
+    if (state.selectedIds.length === 0) return
+    state.selectedIds.forEach((id) => {
+      updateElement(id, changes as Partial<CanvasElement>)
+    })
+  }
+  // 批量处理文本元素
+  const handleTextsChange = (changes: Partial<TextElement>) => {
+    if (state.selectedIds.length === 0) return
+    state.selectedIds.forEach((id) => {
+      updateElement(id, changes as Partial<CanvasElement>)
+    })
+  }
+  // 批量处理图片元素
+  const handleImagesChange = (changes: Partial<ImageElement>) => {
+    if (state.selectedIds.length === 0) return
+    state.selectedIds.forEach((id) => {
+      updateElement(id, changes as Partial<CanvasElement>)
+    })
+  }
+
 
   // 未选中元素时显示的空状态
   if (!selectedElement) {
@@ -542,11 +614,145 @@ export const RightPanel = () => {
           <li>支持图形、文字、图片基础属性调整</li>
           <li>可在左侧插入新的画布元素</li>
         </ul>
+        <p>选中单元素，支持其类型下的所有属性编辑</p>
+        <p>选中多元素，支持统一设置宽高、旋转和不透明度</p>
       </aside>
     )
   }
 
   // 选中元素时显示的属性编辑面板
+  // 根据选中的元素数量决定是单选渲染，还是多选渲染
+  if (state.selectedIds.length > 1) {
+    // 多选渲染，包括不同类型和相同类型的多元素
+    const isSameType = elementsHaveSameType(state.elements, state.selectedIds);
+    const commonType = getCommonType(state.elements, state.selectedIds);
+
+    return (
+      <aside className="flex w-80 flex-col gap-4 overflow-y-auto border-l border-canvas-border bg-white/70 p-4">
+        {/* 多选的头部信息 */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">
+              {isSameType ? `多选${getTypeDisplayName(commonType)}` : "多选元素"}
+            </p>
+            <p className="text-base font-semibold text-slate-900">
+              一共 {state.selectedIds.length} 个元素
+              {isSameType && (
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  ({getTypeDisplayName(commonType)})
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={deleteSelected}
+            className="text-xs font-medium text-rose-600 hover:text-rose-700"
+          >
+            删除全部
+          </button>
+        </div>
+
+        {/* 多选的属性控制区域，此时仅支持统一设置宽高、旋转和不透明度 */}
+        <Section title="布局属性">
+          <div className="space-y-3">
+            <Field label="宽度">
+              <NumberInput
+                value={selectedElement?.width || 0}
+                onChange={(value) => handleLayoutChange({width: value})}
+                min={1}
+              />
+            </Field>
+            <Field label="高度">
+              <NumberInput
+                value={selectedElement?.height || 0}
+                onChange={(value) => handleLayoutChange({height: value})}
+                min={1}
+              />
+            </Field>
+            <Field label="旋转">
+              <NumberInput
+                value={selectedElement?.rotation || 0}
+                onChange={(value) => handleLayoutChange({rotation: value})}
+              />
+            </Field>
+            <Field label="不透明度">
+              <input
+                type="range"
+                min={0.1}
+                max={1}
+                step={0.05}
+                value={selectedElement?.opacity || 0}
+                onChange={(event) => handleLayoutChange({opacity: Number(event.target.value)})}
+                className="w-full"
+              />
+            </Field>
+          </div>
+        </Section>
+
+        {/* 同类元素的特定属性控制区域 */}
+        {/* 基础图形类 */}
+        {isSameType && commonType === "shape" && (
+          <Section title="图形属性">
+            <ShapeControls
+              element={selectedElement as ShapeElement}
+              update={(changes) => handleShapesChange(changes)}
+            />
+            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-xs text-blue-700">
+                正在批量处理 {state.selectedIds.length} 个图形元素
+              </p>
+            </div>
+          </Section>
+        )}
+        {/* 文本类 */}
+        {isSameType && commonType === "text" && (
+          <Section title="文字属性">
+            <TextControls
+              element={selectedElement as TextElement}
+              update={(changes) => handleTextsChange(changes)}
+            />
+            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-xs text-blue-700">
+                正在批量处理 {state.selectedIds.length} 个文本元素
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                注意：文本批操作将修改所有选中的文本内容
+              </p>
+            </div>
+          </Section>
+        )}
+        {/* 图片类 */}
+        {isSameType && commonType === "image" && (
+          <Section title="图片属性">
+            <ImageControls
+              element={selectedElement as ImageElement}
+              update={(changes) => handleImagesChange(changes)}
+            />
+            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-xs text-blue-700">
+                正在批量处理 {state.selectedIds.length} 个图片元素
+              </p>
+            </div>
+          </Section>
+        )}
+
+        {/* 不同类型元素，给一个提示信息 */}
+        {!isSameType && (
+          <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-xs text-blue-700">
+              当前选中了多个不同类型的元素，仅适用部分类型的批操作
+            </p>
+            <p className="text-xs text-blue-600 mt-1">
+              如需编辑特定属性，请单独选中元素
+            </p>
+          </div>
+        )}
+      </aside>
+    );
+  }
+
+  // 单选渲染
   return (
     <aside className="flex w-80 flex-col gap-4 overflow-y-auto border-l border-canvas-border bg-white/70 p-4">
       {/* 元素信息头部，显示元素名称和删除按钮 */}
