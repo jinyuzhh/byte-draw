@@ -461,7 +461,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         height: 80,
         rotation: 0,
         opacity: 1,
-        text,
+        text : text || "请输入文本内容...", // 如果传入空串，则使用默认文本
         fontSize: 24,
         fontFamily: "Inter",
         fontWeight: 500,

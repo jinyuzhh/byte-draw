@@ -352,34 +352,54 @@ const TextControls = ({
 }: {
   element: TextElement
   update: (changes: Partial<TextElement>) => void
-}) => (
-  <div className="space-y-3">
-    {/* 文本内容编辑区域 */}
-    <Field label="内容">
-      <textarea
-        value={element.text}
-        onChange={(event) => update({ text: event.target.value })}
-        className="h-24 w-full rounded-lg border border-canvas-border bg-white p-2 text-sm text-slate-700 focus:border-canvas-accent focus:outline-none"
-      />
-    </Field>
-    {/* 字体大小控制 */}
-    <Field label="字体大小">
-      <NumberInput value={element.fontSize} onChange={(value) => update({ fontSize: value })} min={12} max={128} />
-    </Field>
-    {/* 字体粗细控制 */}
-    <Field label="字体粗细">
-      <NumberInput value={element.fontWeight} onChange={(value) => update({ fontWeight: value })} min={100} max={900} step={100} />
-    </Field>
-    {/* 文字颜色选择器 */}
-    <Field label="文字颜色">
-      <ColorInput value={element.color} onChange={(value) => update({ color: value })} />
-    </Field>
-    {/* 背景颜色选择器 */}
-    <Field label="背景色">
-      <ColorInput value={element.background} onChange={(value) => update({ background: value })} />
-    </Field>
-  </div>
-)
+}) => {
+  // 文本框获得焦点
+  const handleFocus = (event : React.FocusEvent<HTMLTextAreaElement>) => {
+    // 如果是占位符，则清空文本内容
+    if (event.target.value === '请输入文本内容...'){
+      update({ text: '' })
+    }
+  }
+  // 文本框失去焦点
+  const handleBlur = (event : React.FocusEvent<HTMLTextAreaElement>) => {
+    // 如果文本内容为空，则显示占位符
+    if (!event.target.value.trim()) {
+      update({ text: '请输入文本内容...' })
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* 文本内容编辑区域 */}
+      <Field label="内容">
+        <textarea
+          value={element.text}
+          onChange={(event) => update({ text: event.target.value })}
+          onFocus={handleFocus} // 获得焦点时清空文本内容
+          onBlur={handleBlur} // 失去焦点时更新文本内容
+          className="h-24 w-full rounded-lg border border-canvas-border bg-white p-2 text-sm text-slate-700 focus:border-canvas-accent focus:outline-none"
+          style={{color: element.text === "请输入文本内容..." ? "#9CA3AF" : "#374151"}} // 文本框状态决定显示颜色
+        />
+      </Field>
+      {/* 字体大小控制 */}
+      <Field label="字体大小">
+        <NumberInput value={element.fontSize} onChange={(value) => update({ fontSize: value })} min={12} max={128} />
+      </Field>
+      {/* 字体粗细控制 */}
+      <Field label="字体粗细">
+        <NumberInput value={element.fontWeight} onChange={(value) => update({ fontWeight: value })} min={100} max={900} step={100} />
+      </Field>
+      {/* 文字颜色选择器 */}
+      <Field label="文字颜色">
+        <ColorInput value={element.color} onChange={(value) => update({ color: value })} />
+      </Field>
+      {/* 背景颜色选择器 */}
+      <Field label="背景色">
+        <ColorInput value={element.background} onChange={(value) => update({ background: value })} />
+      </Field>
+    </div>
+  )
+}
 
 /**
  * 图片元素属性控制组件

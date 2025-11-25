@@ -102,7 +102,9 @@ export const LeftPanel = () => {
   const { addShape, addText, addImage } = useCanvas()
   
   // 文本输入状态管理，默认值为提示文本
-  const [textValue, setTextValue] = useState("标题文案 / 支持多行输入")
+  // 实际应该设置分为 textValue 和 placeholder
+  const [textValue, setTextValue] = useState("") // 文本输入的值
+  const [showPlaceholder, setShowPlaceholder] = useState(true) // 是否显示提示文本
 
   /**
  * 处理图片上传事件
@@ -132,6 +134,31 @@ export const LeftPanel = () => {
  * />
  * ```
  */
+
+  // 文本框获得焦点
+  const handleTextFocus = () => {
+    setShowPlaceholder(false) // 隐藏提示文本
+    if (textValue === "文本文案 / 支持多行输入") { // 如果文本框初始值为提示文本，清空文本框
+      setTextValue("") // 清空文本输入框
+    }
+  }
+  // 文本框失去焦点
+  const handleTextBlur = () => {
+    if (!textValue.trim()) {
+      setShowPlaceholder(true) // 显示提示文本
+      setTextValue("文本文案 / 支持多行输入") // 设置提示文本
+    }
+  }
+  // 添加文本
+  const handleAddText = () => {
+    if (showPlaceholder || !textValue.trim() || textValue === "文本文案 / 支持多行输入") {
+      return // 空输入或提示文本不添加
+    }
+    addText(textValue) // 添加文本元素
+    setTextValue("") // 清空文本输入框
+    setShowPlaceholder(true) // 显示提示文本
+  }
+
   const handleUpload = (event: ChangeEvent<HTMLInputElement>) => {
     // 获取用户选择的第一个文件
     const file = event.target.files?.[0]
@@ -206,14 +233,17 @@ export const LeftPanel = () => {
       <Section title="文本">
         {/* 多行文本输入框，受控组件 */}
         <textarea
-          value={textValue} // 绑定到 textValue 状态
+          value={showPlaceholder ? "文本文案 / 支持多行输入" : textValue} // 根据是否显示提示文本显示不同默认值
           onChange={(event) => setTextValue(event.target.value)} // 更新文本状态
+          onFocus={handleTextFocus} // 获得焦点时调用 handleTextFocus 函数
+          onBlur={handleTextBlur} // 失去焦点时调用 handleTextBlur 函数
           className="h-24 w-full rounded-xl border border-canvas-border bg-slate-50/60 p-3 text-sm text-slate-700 focus:border-canvas-accent focus:outline-none"
+          style={{color: showPlaceholder ? "#9CA3AF" : "#374151"}} // 根据是否显示提示文本显示不同颜色
         />
         {/* 添加文本按钮 */}
         <button
           type="button"
-          onClick={() => addText(textValue)} // 点击时调用 addText 方法
+          onClick={handleAddText} // 点击时调用 addText 方法
           className="w-full rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-800"
         >
           添加文字

@@ -676,6 +676,7 @@ export const PixiCanvas = () => {
     []
   )
 
+
   useEffect(() => {
     const content = contentRef.current
     const app = appRef.current
