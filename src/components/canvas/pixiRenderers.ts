@@ -44,7 +44,26 @@ export const createShape = async (
   container.cursor = interactionMode === "select" ? "move" : "grab"
   container.hitArea = new Rectangle(0, 0, element.width, element.height)
 
-  if (element.type === "shape") {
+  // 处理组元素
+  if (element.type === "group") {
+    // 移除背景和文本标签，仅保留子元素渲染功能
+
+    // 递归渲染组内的子元素
+    if (element.children && element.children.length > 0) {
+      for (const child of element.children) {
+        // 递归调用createShape渲染子元素
+        const childContainer = await createShape(child, interactionMode, (event) => {
+          // 当点击子元素时，冒泡到父组的点击事件
+          event.stopPropagation()
+          onPointerDown(event)
+        })
+        // 子元素已经是相对于组的位置，直接添加到容器
+        container.addChild(childContainer)
+      }
+    }
+  }
+
+  else if (element.type === "shape") {
     const fill = new Graphics()
     const stroke = new Graphics()
     const mask = new Graphics()

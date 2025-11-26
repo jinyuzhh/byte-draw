@@ -25,7 +25,7 @@ import {
   Rectangle,
 } from "pixi.js"
 import { useCanvas } from "../../store/CanvasProvider"
-import type { CanvasElement } from "../../types/canvas"
+import type { CanvasElement, GroupElement } from "../../types/canvas"
 import {
   MIN_ELEMENT_SIZE,
   SELECTION_COLOR,
@@ -43,6 +43,7 @@ import {
   createSelectionOutline,
   createShape,
 } from "./pixiRenderers"
+import { RightClickMenu } from "./RightClickMenu"
 
 /**
  * PixiCanvas 画布组件
@@ -59,6 +60,7 @@ import {
 export const PixiCanvas = () => {
   // 在组件顶部声明全局变量，确保在所有作用域内可用
   let handleGlobalWheel: ((event: WheelEvent) => void) | null = null;
+  let preventContextMenu: ((e: Event) => void) | null = null;
 
   // 从 Canvas Context 获取状态和方法
   const {
@@ -70,14 +72,16 @@ export const PixiCanvas = () => {
     panBy,              // 平移画布
     registerApp,        // 注册 PixiJS 应用实例
     setZoom,
+    groupElements,      // 打组功能
+    ungroupElements,    // 解组功能
   } = useCanvas()
-  
+
   // DOM 和 PixiJS 对象引用
   const wrapperRef = useRef<HTMLDivElement | null>(null)      // 画布容器 DOM 元素引用
   const appRef = useRef<Application | null>(null)              // PixiJS 应用实例引用
   const contentRef = useRef<Container | null>(null)            // 内容容器引用（存放所有元素）
   const backgroundRef = useRef<Graphics | null>(null)          // 背景图形对象引用
-  
+
   // 交互状态引用
   const dragRef = useRef<{
     ids: string[]                                    // 正在拖动的元素 ID 列表
@@ -86,7 +90,7 @@ export const PixiCanvas = () => {
     historySnapshot: CanvasElement[]                // 拖动开始时的历史记录快照
     moved: boolean                                  // 是否已移动（用于区分点击和拖动）
   } | null>(null)                                    // 拖动操作状态引用
-  
+
   const resizeRef = useRef<{
     ids: string[]                                                           // 正在调整大小的元素 ID
     direction: ResizeDirection                                              // 调整大小的方向
@@ -106,6 +110,13 @@ export const PixiCanvas = () => {
 
   const [renderPage, setRenderPage] = useState(0); // 用于触发页面渲染
   const [hasInitialized, setHasInitialized] = useState(false); // 用于判断是否已经初始化
+
+  // 右键菜单状态
+  const [rightClickMenu, setRightClickMenu] = useState({
+    isVisible: false,
+    x: 0,
+    y: 0,
+  })
 
   useEffect(() => {
     if (isInitialized && !hasInitialized && state.elements.length > 0) {
@@ -149,10 +160,10 @@ export const PixiCanvas = () => {
       dy: number
     ) => {
       const { direction, startElements, startBounds, ids } = info
-      
+
       // 计算新的包围盒
       const newBounds = { ...startBounds }
-      
+
       if (direction.includes("e")) {
         newBounds.width = Math.max(MIN_ELEMENT_SIZE, startBounds.width + dx)
       }
@@ -192,6 +203,30 @@ export const PixiCanvas = () => {
             const newY = newBounds.y + (startEl.y - startBounds.y) * scaleY
             const newWidth = Math.max(MIN_ELEMENT_SIZE, startEl.width * scaleX)
             const newHeight = Math.max(MIN_ELEMENT_SIZE, startEl.height * scaleY)
+
+            // 处理组元素，更新其内部子元素
+            if (el.type === 'group' && 'children' in el && Array.isArray(el.children)) {
+              const startGroup = startEl as typeof el;
+              if (startGroup.children) {
+                // 缩放组内子元素
+                const scaledChildren = startGroup.children.map(child => ({
+                  ...child,
+                  x: child.x * scaleX,
+                  y: child.y * scaleY,
+                  width: Math.max(MIN_ELEMENT_SIZE, child.width * scaleX),
+                  height: Math.max(MIN_ELEMENT_SIZE, child.height * scaleY)
+                }));
+                
+                return { 
+                  ...el, 
+                  x: newX, 
+                  y: newY, 
+                  width: newWidth, 
+                  height: newHeight,
+                  children: scaledChildren
+                };
+              }
+            }
 
             return { ...el, x: newX, y: newY, width: newWidth, height: newHeight }
           }) as CanvasElement[],
@@ -240,14 +275,14 @@ export const PixiCanvas = () => {
         app.destroy()
         return
       }
-      
+
       // 将画布添加到 DOM
       wrapperRef.current.appendChild(app.canvas)
-      
+
       // 设置舞台交互模式
       app.stage.eventMode = "static"
       app.stage.hitArea = app.screen
-      
+
       // 创建背景层（用于处理画布点击和平移）
       const background = new Graphics()
       background.alpha = 0
@@ -282,13 +317,19 @@ export const PixiCanvas = () => {
 
       // 背景层指针按下事件处理
       background.on("pointerdown", (event: FederatedPointerEvent) => {
+        // 处理右键点击
+        if (event.originalEvent && (event.originalEvent as any).button === 2) {
+          event.preventDefault();
+          return;
+        }
+
         // 平移模式：初始化平移状态
         if (stateRef.current.interactionMode === "pan") {
           panRef.current = {
             lastPointer: { x: event.global.x, y: event.global.y },
           }
           background.cursor = "grabbing"
-        } 
+        }
         // 选择模式：处理区域选择
         else if (stateRef.current.interactionMode === "select") {
           const nativeEvent = event.originalEvent as unknown as MouseEvent;
@@ -302,7 +343,7 @@ export const PixiCanvas = () => {
             // 创建选择框
             const selectionBox = new Graphics();
             selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
-            selectionBox.fill({color: SELECTION_COLOR, alpha: 0.1});
+            selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
             selectionBox.zIndex = 100;
             content.addChild(selectionBox);
             selectionBoxRef.current = selectionBox;
@@ -312,6 +353,40 @@ export const PixiCanvas = () => {
           clearSelection()
         }
       })
+
+      // 定义阻止浏览器默认右键菜单的函数
+      preventContextMenu = (e: Event) => {
+        e.preventDefault();
+      };
+
+      // 处理右键菜单
+      const handleRightClick = (event: FederatedPointerEvent) => {
+        event.preventDefault();
+
+        // 只有在选择模式下才显示右键菜单
+        if (stateRef.current.interactionMode !== "select") {
+          return;
+        }
+
+        // 获取事件的屏幕坐标
+        const originalEvent = event.originalEvent as any;
+        const x = originalEvent.clientX;
+        const y = originalEvent.clientY;
+
+        setRightClickMenu({
+          isVisible: true,
+          x,
+          y
+        });
+      };
+
+      // 为舞台添加右键事件监听器
+      app.stage.on("rightclick", handleRightClick);
+
+      // 在canvas元素上添加contextmenu事件监听器，完全阻止浏览器默认右键菜单
+      if (appRef.current && appRef.current.canvas) {
+        appRef.current.canvas.addEventListener('contextmenu', preventContextMenu);
+      }
 
       // 定义滚轮事件处理函数
       const handleGlobalWheel = (event: WheelEvent) => {
@@ -358,7 +433,7 @@ export const PixiCanvas = () => {
         if (isSelectedRef.current && selectionStartRef.current && selectionBoxRef.current) {
           const localPos = event.getLocalPosition(content);
           const start = selectionStartRef.current;
-          
+
           // 计算选择框的位置和尺寸
           const x = Math.min(start.x, localPos.x);
           const y = Math.min(start.y, localPos.y);
@@ -370,7 +445,7 @@ export const PixiCanvas = () => {
           selectionBox.clear();
           selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
           selectionBox.beginFill(SELECTION_COLOR, 0.1);
-          selectionBox.fill({color: SELECTION_COLOR, alpha: 0.1});
+          selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
           selectionBox.drawRect(x, y, width, height);
           selectionBox.endFill();
           return;
@@ -386,7 +461,7 @@ export const PixiCanvas = () => {
           performResize(current, dx, dy)
           return
         }
-        
+
         // 拖动处理：更新元素位置
         if (dragRef.current) {
           const current = dragRef.current
@@ -408,7 +483,7 @@ export const PixiCanvas = () => {
           }
           return
         }
-        
+
         // 平移处理：更新画布视口
         if (panRef.current) {
           const last = panRef.current.lastPointer
@@ -430,7 +505,7 @@ export const PixiCanvas = () => {
 
           // 找出与选择框相交的所有元素
           const selectedElements = stateRef.current.elements.filter(elem => {
-            const elemRect = new Rectangle( elem.x, elem.y, elem.width, elem.height );
+            const elemRect = new Rectangle(elem.x, elem.y, elem.width, elem.height);
             return selectionRect.intersects(elemRect); // 检查元素是否与选择框相交
           });
 
@@ -455,7 +530,7 @@ export const PixiCanvas = () => {
         if (panRef.current && background) {
           background.cursor = "default"
         }
-        
+
         // 记录拖动操作的历史
         if (dragRef.current?.moved) {
           mutateElements(
@@ -465,7 +540,7 @@ export const PixiCanvas = () => {
             }
           )
         }
-        
+
         // 记录调整大小操作的历史
         if (resizeRef.current?.moved) {
           mutateElements(
@@ -475,7 +550,7 @@ export const PixiCanvas = () => {
             }
           )
         }
-        
+
         // 清除所有交互状态
         dragRef.current = null
         resizeRef.current = null
@@ -582,7 +657,7 @@ export const PixiCanvas = () => {
       if (stateRef.current.interactionMode !== "select") return
       const content = contentRef.current
       if (!content) return
-      
+
       const elements = stateRef.current.elements.filter(el => ids.includes(el.id))
       if (elements.length === 0) return
 
@@ -611,16 +686,16 @@ export const PixiCanvas = () => {
 
   // 添加 renderElements 函数
   const renderElements = useCallback((
-    content: Container, 
-    elements: CanvasElement[], 
+    content: Container,
+    elements: CanvasElement[],
     currentState: typeof state
   ) => {
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     // 启用子元素排序（用于控制柄层级）
     content.sortableChildren = true
-    
+
     // 为每个元素创建可视化表示
-    
+
     elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id)
       const node = await createShape(element, state.interactionMode, (event) =>
@@ -628,7 +703,7 @@ export const PixiCanvas = () => {
       )
       node.zIndex = 1
       content.addChild(node)
-      
+
       // 处理选中状态的调整手柄
       // 为选中的单个元素添加调整大小控制柄
       if (
@@ -687,7 +762,7 @@ export const PixiCanvas = () => {
 
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     content.sortableChildren = true
-    
+
     // 1. 渲染所有元素和单选框
     state.elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id)
@@ -711,7 +786,7 @@ export const PixiCanvas = () => {
       const selectedElements = state.elements.filter((el) =>
         state.selectedIds.includes(el.id)
       )
-      
+
       if (selectedElements.length === 0) return
 
       // 计算包围盒
@@ -777,6 +852,86 @@ export const PixiCanvas = () => {
     background.cursor = state.interactionMode === "pan" ? "grab" : "default"
   }, [state.interactionMode])
 
-  // 渲染画布容器
-  return <div ref={wrapperRef} className="h-full w-full rounded-[32px]" />
+  // 检查选中元素是否为组
+  const isGroupSelected = state.selectedIds.length === 1 &&
+    state.elements.find(el => el.id === state.selectedIds[0] && el.type === 'group') as GroupElement;
+
+  // 处理键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // 检查是否按下了Ctrl或Cmd键
+      const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+
+      // 打组快捷键: Ctrl+G
+      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && !event.shiftKey) {
+        event.preventDefault();
+        // 只有选中至少两个元素时才执行打组
+        if (state.selectedIds.length >= 2) {
+          groupElements();
+        }
+      }
+
+      // 解组快捷键: Ctrl+Shift+G
+      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && event.shiftKey) {
+        event.preventDefault();
+        // 只有选中一个组时才执行解组
+        if (isGroupSelected) {
+          ungroupElements();
+        }
+      }
+    };
+
+    // 添加键盘事件监听器
+    document.addEventListener('keydown', handleKeyDown);
+
+    // 清理事件监听器
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      // 移除canvas上的contextmenu事件监听器
+      if (appRef.current && appRef.current.canvas && preventContextMenu) {
+        appRef.current.canvas.removeEventListener('contextmenu', preventContextMenu);
+        preventContextMenu = null;
+      }
+    };
+  }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements])
+
+  // 准备右键菜单项
+  const menuItems = [
+    // 打组选项 - 只有选中多个元素时才可用
+    {
+      label: '打组 (Ctrl+G)',
+      onClick: () => {
+        if (state.selectedIds.length >= 2) {
+          groupElements();
+          setRightClickMenu({ isVisible: false, x: 0, y: 0 });
+        }
+      },
+      disabled: state.selectedIds.length < 2
+    },
+    // 解组选项 - 只有选中一个组时才可用
+    {
+      label: '解组 (Ctrl+Shift+G)',
+      onClick: () => {
+        if (isGroupSelected) {
+          ungroupElements();
+          setRightClickMenu({ isVisible: false, x: 0, y: 0 });
+        }
+      },
+      disabled: !isGroupSelected
+    }
+  ];
+
+  // 渲染画布容器和右键菜单
+  return (
+    <div className="relative h-full w-full">
+      <div ref={wrapperRef} className="h-full w-full rounded-[32px]" />
+      <RightClickMenu
+        items={menuItems}
+        x={rightClickMenu.x}
+        y={rightClickMenu.y}
+        isVisible={rightClickMenu.isVisible}
+        onClose={() => setRightClickMenu({ isVisible: false, x: 0, y: 0 })}
+      />
+    </div>
+  )
 }

@@ -16,6 +16,7 @@ import type {
   CanvasState,
   InteractionMode,
   ShapeVariant,
+  GroupElement
 } from "../types/canvas"
 
 /**
@@ -125,13 +126,13 @@ const getInitialState = (): CanvasState => {
  */
 type Action =
   | {
-      type: "SET_ELEMENTS"
-      payload: {
-        updater: (elements: CanvasElement[]) => CanvasElement[]
-        recordHistory: boolean
-        historySnapshot?: CanvasElement[]
-      }
+    type: "SET_ELEMENTS"
+    payload: {
+      updater: (elements: CanvasElement[]) => CanvasElement[]
+      recordHistory: boolean
+      historySnapshot?: CanvasElement[]
     }
+  }
   | { type: "SET_SELECTION"; payload: string[]; additive?: boolean }
   | { type: "CLEAR_SELECTION" }
   | { type: "SET_ZOOM"; payload: number }
@@ -461,7 +462,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         height: 80,
         rotation: 0,
         opacity: 1,
-        text : text || "请输入文本内容...", // 如果传入空串，则使用默认文本
+        text: text || "请输入文本内容...", // 如果传入空串，则使用默认文本
         fontSize: 24,
         fontFamily: "Inter",
         fontWeight: 500,
@@ -602,6 +603,169 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   }, [mutateElements, state.selectedIds])
 
   /**
+   * 将选中的多个元素组合成一个组元素
+   * 
+   * @function groupElements
+   * 
+   * @description 
+   * 将当前选中的多个元素组合成一个组元素，执行以下操作：
+   * 1. 检查是否选中了多个元素，若只有一个或没有选中则不执行
+   * 2. 计算选中元素的边界框，作为组的位置和大小
+   * 3. 创建一个新的组元素，包含所有选中元素的ID
+   * 4. 从画布中移除原选中的元素
+   * 5. 将新组元素添加到画布并选中它
+   * 6. 记录历史以便撤销
+   */
+  const groupElements = useCallback(() => {
+    // 检查是否选中了多个元素
+    if (state.selectedIds.length <= 1) return
+
+    // 获取选中的元素
+    const selectedElements = state.elements.filter(el =>
+      state.selectedIds.includes(el.id)
+    )
+
+    // 计算选中元素的边界框
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+
+    selectedElements.forEach(el => {
+      minX = Math.min(minX, el.x)
+      minY = Math.min(minY, el.y)
+      maxX = Math.max(maxX, el.x + el.width)
+      maxY = Math.max(maxY, el.y + el.height)
+    })
+
+    // 创建组元素，保存子元素的完整副本（相对于组的位置）
+    const groupId = createId()
+    const childElements = selectedElements.map(el => ({
+      ...deepCopy(el),
+      // 转换为相对于组的位置
+      x: el.x - minX,
+      y: el.y - minY
+    }))
+
+    const group: GroupElement = {
+      id: groupId,
+      name: `组 ${state.elements.filter(el => el.type === 'group').length + 1}`,
+      type: 'group',
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      rotation: 0,
+      opacity: 1,
+      children: childElements
+    }
+
+    // 更新元素列表：移除原元素，添加组元素
+    mutateElements(elements => {
+      // 过滤掉选中的元素
+      const elementsWithoutSelected = elements.filter(
+        el => !state.selectedIds.includes(el.id)
+      )
+      // 添加组元素
+      return [...elementsWithoutSelected, group]
+    })
+
+    // 选中新创建的组
+    dispatch({ type: 'SET_SELECTION', payload: [groupId] })
+  }, [state.selectedIds, state.elements, mutateElements])
+
+  /**
+   * 将选中的组元素解散为独立元素
+   * 
+   * @function ungroupElements
+   * 
+   * @description 
+   * 将当前选中的组元素解散，执行以下操作：
+   * 1. 检查是否选中了一个组元素，若未选中或选中了多个元素则不执行
+   * 2. 从组中提取子元素数据
+   * 3. 将子元素的位置转换为相对于画布的全局位置
+   * 4. 从画布中移除组元素
+   * 5. 将子元素添加回画布并选中它们
+   * 6. 记录历史以便撤销
+   */
+  const ungroupElements = useCallback(() => {
+    // 检查是否选中了一个组元素
+    if (state.selectedIds.length !== 1) return
+
+    const group = state.elements.find(
+      el => el.id === state.selectedIds[0] && el.type === 'group'
+    ) as GroupElement | undefined
+
+    if (!group || !group.children) return
+
+    // 准备子元素数组，将相对位置转换为绝对位置
+    const groupChildren: CanvasElement[] = []
+    const newIds: string[] = []
+
+    // 递归处理子元素（支持嵌套组）
+    const processChildren = (children: CanvasElement[], parentX: number, parentY: number) => {
+      children.forEach(child => {
+        // 创建子元素的新副本并分配新ID
+        const newElement = { ...deepCopy(child) } as CanvasElement
+
+        // 转换为全局位置
+        newElement.x += parentX
+        newElement.y += parentY
+
+        // 为嵌套组设置新ID和处理其子元素
+        if (newElement.type === 'group' && 'children' in newElement && Array.isArray(newElement.children)) {
+          const newId = createId()
+          newElement.id = newId
+          newIds.push(newId)
+
+          // 递归处理嵌套的子元素 - 确保children是CanvasElement[]类型
+          const childElements = newElement.children as CanvasElement[]
+          processChildren(childElements, newElement.x, newElement.y)
+        } else {
+          // 为普通元素设置新ID
+          const newId = createId()
+          newElement.id = newId
+          newIds.push(newId)
+
+          // 添加到子元素数组
+          groupChildren.push(newElement)
+        }
+      })
+    }
+
+    // 从根组开始处理 - 确保children是CanvasElement[]类型
+    const rootChildren = Array.isArray(group.children) ? (group.children as CanvasElement[]) : []
+    processChildren(rootChildren, group.x, group.y)
+
+    // 更新元素列表：移除组元素，添加子元素
+    mutateElements(elements => {
+      // 过滤掉组元素
+      const elementsWithoutGroup = elements.filter(
+        el => el.id !== group.id
+      )
+      // 添加子元素
+      return [...elementsWithoutGroup, ...groupChildren]
+    })
+
+    // 选中所有解组后的子元素
+    dispatch({ type: 'SET_SELECTION', payload: newIds })
+  }, [state.selectedIds, state.elements, mutateElements])
+
+  /**
+      // 过滤掉组元素
+      const elementsWithoutGroup = elements.filter(
+        el => el.id !== group.id
+      )
+      
+      // 添加子元素
+      return [...elementsWithoutGroup, ...groupChildren]
+    })
+    
+    // 选中解组后的所有子元素
+    dispatch({ type: 'SET_SELECTION', payload: groupChildren.map(el => el.id) })
+  }, [state.selectedIds, state.elements, mutateElements])
+
+  /**
    * 设置画布缩放比例
    * 
    * @function setZoom
@@ -666,7 +830,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 3. 恢复到上一个状态并清除选择
    */
   const undo = useCallback(() => dispatch({ type: "UNDO" }), [])
-  
+
   /**
    * 重做已撤销的操作
    * 
@@ -788,6 +952,9 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 剪贴板操作方法
       copy,
       paste,
+      // 打组和解组操作方法
+      groupElements,
+      ungroupElements,
     }),
     [
       state,
@@ -810,6 +977,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       exportAsImage,
       copy,
       paste,
+      groupElements,
+      ungroupElements,
     ]
   )
 

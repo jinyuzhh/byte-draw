@@ -274,7 +274,45 @@ export interface ImageElement extends ElementBase {
  * ];
  * ```
  */
-export type CanvasElement = ShapeElement | TextElement | ImageElement
+/**
+ * 组元素接口
+ * 继承自ElementBase，定义了组特有的属性
+ * 组元素可以包含多个子元素，作为一个整体进行操作
+ * 
+ * @interface GroupElement
+ * @extends ElementBase
+ * 
+ * @property {"group"} type - 元素类型标识，固定为"group"
+ * @property {string[]} children - 子元素ID列表，包含在组内的所有元素ID
+ * 
+ * @example
+ * ```typescript
+ * const group: GroupElement = {
+ *   id: "group-123",
+ *   name: "组1",
+ *   x: 100,
+ *   y: 100,
+ *   width: 300,
+ *   height: 200,
+ *   rotation: 0,
+ *   opacity: 1,
+ *   type: "group",
+ *   children: ["element-1", "element-2", "element-3"]
+ * };
+ * ```
+ */
+export interface GroupElement extends ElementBase {
+  type: "group"
+  children: CanvasElement[]
+}
+
+/**
+ * 画布元素联合类型
+ * 包含所有可能的画布元素类型
+ * 
+ * @typedef {ShapeElement|TextElement|ImageElement|GroupElement} CanvasElement
+ */
+export type CanvasElement = ShapeElement | TextElement | ImageElement | GroupElement
 
 /**
  * 画布状态接口
@@ -435,6 +473,37 @@ export interface CanvasContextValue {
   redo: () => void
   registerApp: (app: import("pixi.js").Application | null) => void
   exportAsImage: () => string | null
-  copy:()=> void
-  paste:()=> void
+  copy: () => void
+  paste: () => void
+  /**
+   * 将选中的多个元素组合成一个组元素
+   * 
+   * @function groupElements
+   * 
+   * @description 
+   * 将当前选中的多个元素组合成一个组元素，执行以下操作：
+   * 1. 检查是否选中了多个元素，若只有一个或没有选中则不执行
+   * 2. 计算选中元素的边界框，作为组的位置和大小
+   * 3. 创建一个新的组元素，包含所有选中元素的ID
+   * 4. 从画布中移除原选中的元素
+   * 5. 将新组元素添加到画布并选中它
+   * 6. 记录历史以便撤销
+   */
+  groupElements: () => void
+
+  /**
+   * 将选中的组元素解散为独立元素
+   * 
+   * @function ungroupElements
+   * 
+   * @description 
+   * 将当前选中的组元素解散，执行以下操作：
+   * 1. 检查是否选中了一个组元素，若未选中或选中了多个元素则不执行
+   * 2. 获取组内所有子元素的引用
+   * 3. 将子元素的位置转换为相对于画布的全局位置
+   * 4. 从画布中移除组元素
+   * 5. 将子元素添加回画布并选中它们
+   * 6. 记录历史以便撤销
+   */
+  ungroupElements: () => void
 }
