@@ -158,7 +158,7 @@ export const CanvasArea = () => {
       {/* 画布状态信息栏：显示元素数量和选中状态 */}
       <div className="pointer-events-none absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-3 rounded-full border border-canvas-border bg-white/70 px-4 py-2 text-xs font-medium text-slate-600 shadow-lg">
         <span>元素：{state.elements.length}</span>
-        <span>已选：{state.selectedIds.length}</span>
+        <span>已选：{state.selectedIds.length}{"test cicd"}</span>
       </div>
     </main>
   )
