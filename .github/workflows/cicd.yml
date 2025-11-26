@@ -1,0 +1,67 @@
+name: deploy
+ 
+#监听push操作
+on:
+  push:
+    branches:
+      - cicd # 这里只配置了cicd分支，所以只有推送cicd分支才会触发以下任务
+    paths-ignore: # 下列文件的变更不会触发部署
+      - README.md
+ 
+jobs:
+  build-and-deploy: # 任务ID
+    runs-on: ubuntu-latest # 运行环境
+    steps: # 步骤
+      # 官方action，将代码拉取到虚拟机
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          persist-credentials: false # 这个设置很重要，尤其是在部署到 public repository 时
+ 
+      # 启用node
+      - name: Setup Node.js
+        uses: actions/setup-node@master
+        with:
+          node-version: '20.x'
+          # cache: 'pnpm'
+ 
+      # 安装pnpm
+      - name: Install pnpm
+        run: |
+          npm install -g pnpm
+          echo "Verify pnpm version"
+          pnpm -v
+ 
+      # 添加pnpm到环境变量
+      - name: Add pnpm to PATH
+        run: echo "$(npm prefix -g)/bin" >> $GITHUB_PATH
+ 
+      # 设置pnpm缓存
+      - name: Cache pnpm modules
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+ 
+      # 安装项目依赖
+      - name: Install dependencies
+        run: pnpm install
+ 
+      # 打包构建
+      - name: Build
+        run: pnpm run build
+ 
+      # 部署到 Github Pages
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          branch: gh-pages # 部署后提交到那个分支
+          github_token: ${{ secrets.my-draw-cicd }} # 
+          # deploy_key: ${{ secrets.my-draw-cicd }} # 使用密钥部署 Setting -> Secrets -> New repository secret -> Name: DEPLOY_KEY -> Value: your deploy key
+          publish_dir: ./dist # 这里填打包好的目录名称
+          folder: dist # 这里填打包好的目录名称
+          # publish_branch: gh-pages
+          commit_message: '自动化部署'
