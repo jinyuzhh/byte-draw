@@ -331,7 +331,27 @@ export const createResizeHandlesLayer = (
   return handlesLayer
 }
 
-export const createSelectionOutline = (element: CanvasElement) => {
+export const createSolidBoundsOutline = (
+  bounds: { x: number; y: number; width: number; height: number; rotation?: number }
+) => {
+  const outline = new Graphics()
+  
+  // 直接绘制矩形路径
+  outline.rect(0, 0, bounds.width, bounds.height)
+
+  // 使用实线描边 (Pixi v8 语法)
+  outline.stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 1 })
+
+  // 设置位置
+  outline.position.set(bounds.x, bounds.y)
+  // 如果是多选大框通常不旋转，但为了通用性这里加上旋转判断
+  outline.angle = bounds.rotation || 0
+  outline.zIndex = 2
+
+  return outline
+}
+
+export const createSelectionOutline = (bounds: { x: number; y: number; width: number; height: number; rotation: number }) => {
   const outline = new Graphics()
   // 定义虚线参数
   const dash = 5 // 实线段长度
@@ -365,17 +385,17 @@ export const createSelectionOutline = (element: CanvasElement) => {
   }
 
   // 分别绘制矩形的四条边
-  drawDashedLine(0, 0, element.width, 0) // 上边
-  drawDashedLine(element.width, 0, element.width, element.height) // 右边
-  drawDashedLine(element.width, element.height, 0, element.height) // 下边
-  drawDashedLine(0, element.height, 0, 0) // 左边
+  drawDashedLine(0, 0, bounds.width, 0)
+  drawDashedLine(bounds.width, 0, bounds.width, bounds.height)
+  drawDashedLine(bounds.width, bounds.height, 0, bounds.height)
+  drawDashedLine(0, bounds.height, 0, 0)
 
   // 应用描边样式
-  outline.stroke({ width: 1.4, color: SELECTION_COLOR, alpha: 1 })
+ outline.stroke({ width: 1.4, color: SELECTION_COLOR, alpha: 1 })
   
   // 设置位置和旋转
-  outline.position.set(element.x, element.y)
-  outline.angle = element.rotation
+  outline.position.set(bounds.x, bounds.y)
+  outline.angle = bounds.rotation
   outline.zIndex = 2
   
   return outline
