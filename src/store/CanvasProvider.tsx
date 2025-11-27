@@ -269,6 +269,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
 
   // 使用 useRef 作为内部剪贴板，存储复制的元素
   const clipboardRef = useRef<CanvasElement[]>([])
+  // 计算粘贴次数，用来计算连续粘贴的偏移量
+  const pasteCountRef = useRef(1)
 
   /**
    * 更新元素列表的核心方法
@@ -334,6 +336,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     if (selectedElements.length > 0) {
       // 深拷贝存储，防止引用关联
       clipboardRef.current = deepCopy(selectedElements)
+      pasteCountRef.current = 1
     }
   }, [state.elements, state.selectedIds])
 
@@ -357,6 +360,9 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     const newElements: CanvasElement[] = []
     const newIds: string[] = []
 
+    //计算偏移量：20px*连续粘贴次数
+    const offset = 20 * pasteCountRef.current
+
     clipboard.forEach((item) => {
       const id = createId()
       newIds.push(id)
@@ -365,8 +371,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         ...deepCopy(item), // 再次深拷贝，确保新粘贴的元素与剪贴板断开关联
         id,
         name: `${item.name} 副本`,
-        x: item.x + 20,
-        y: item.y + 20,
+        x: item.x + offset,
+        y: item.y + offset,
       }
       newElements.push(newElement)
     })
@@ -375,6 +381,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     mutateElements((prev) => [...prev, ...newElements])
     // 选中新粘贴的元素
     dispatch({ type: "SET_SELECTION", payload: newIds })
+    //  计数器+1
+    pasteCountRef.current += 1
   }, [mutateElements])
 
 
@@ -424,7 +432,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         shape,
         fill: "#f8fafc",
         stroke: "#0f172a",
-        strokeWidth: 2,
+        strokeWidth: 1,
         // 矩形默认圆角为12px，圆形无圆角
         cornerRadius: shape === "rectangle" ? 12 : 0,
       }

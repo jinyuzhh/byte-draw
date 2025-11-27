@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef } from "react"
+import { useHotkeys } from "react-hotkeys-hook"
 import { useCanvas } from "../../store/CanvasProvider"
 import { PixiCanvas } from "../canvas/PixiCanvas"
 import type { InteractionMode } from "../../types/canvas"
@@ -29,6 +30,7 @@ import type { InteractionMode } from "../../types/canvas"
  * 负责处理画布的核心交互逻辑，包括元素选择、编辑和快捷键操作。
  * 
  * @returns {JSX.Element} 返回画布区域组件
+ * 
  */
 export const CanvasArea = () => {
   // 从画布状态管理中获取所需的状态和方法
@@ -36,6 +38,24 @@ export const CanvasArea = () => {
   
   // 存储按住空格键之前的交互模式，用于松开空格键后恢复
   const prevModeRef = useRef<InteractionMode | null>(null)
+
+  useHotkeys('mod+c', (e) => {
+    e.preventDefault()
+    copy()
+  }, [copy])
+
+  useHotkeys('mod+v', (e) => {
+    e.preventDefault()
+    paste()
+  }, [paste])
+
+  useHotkeys('delete, backspace', (e) => {
+    const activeTag = document.activeElement?.tagName.toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea') return
+    
+    e.preventDefault()
+    deleteSelected()
+  }, [deleteSelected])
   
   // 跟踪空格键是否被按下，防止重复触发
   const spacePressedRef = useRef(false)
@@ -58,45 +78,20 @@ export const CanvasArea = () => {
      * 
      * @description 
      * 处理以下键盘操作：
-     * 1. Delete键：删除选中的元素（当焦点不在输入框时）
-     * 2. Ctrl+C：复制选中的元素
-     * 3. Ctrl+V：粘贴已复制的元素
-     * 4. 空格键：临时切换到移动模式
+     * 1. 按下空格键：临时切换到移动(Pan)模式
+     * 2. 防止长按重复触发
+     * *复制、粘贴、删除已通过 useHotkeys 钩子处理
+     * 
      */
     const handleKeyDown = (event: KeyboardEvent) => {
-      // 处理删除键操作
-      if(event.code == 'Delete'){
-        // 检查当前焦点是否在输入框中，如果是则不执行删除操作
-        const activeTag = document.activeElement?.tagName.toLowerCase()
-        if(activeTag == 'input' || activeTag == 'textarea'){
-          return
-        }
-        event.preventDefault()
-        deleteSelected() // 调用画布状态管理中的删除方法
-        return
-      }
-      
-      // 检查是否按下了控制键
-      const isControl = event.ctrlKey
-
-      // 处理复制操作（Ctrl+C）
-      if(isControl && (event.code === "KeyC" || event.key === "c") ){
-        event.preventDefault() // 阻止浏览器默认的复制行为
-        copy()
-        return
-      }
-
-      // 处理粘贴操作（Ctrl+V）
-      if(isControl && (event.code === "KeyV" || event.key === "v")){
-        event.preventDefault() // 阻止浏览器默认的粘贴行为
-        paste()
-        return
-      }
-
       // 处理空格键：临时切换到移动模式
       if (event.code !== "Space" || event.repeat) return
+
+      const activeTag = document.activeElement?.tagName.toLowerCase()
+      if (activeTag === 'input' || activeTag === 'textarea') return
+
       event.preventDefault()
-      
+
       // 防止重复触发空格键事件
       if (spacePressedRef.current) return
       spacePressedRef.current = true
@@ -145,7 +140,7 @@ export const CanvasArea = () => {
       window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [setInteractionMode,copy,paste,deleteSelected]) // 依赖项：当这些方法改变时重新绑定事件
+  }, [setInteractionMode]) // 依赖项：当这些方法改变时重新绑定事件
 
   return (
     // 画布区域主容器，占据剩余空间并设置背景样式
