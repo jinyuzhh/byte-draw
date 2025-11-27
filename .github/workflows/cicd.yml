@@ -38,7 +38,7 @@ jobs:
  
       # 设置pnpm缓存
       - name: Cache pnpm modules
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/.pnpm-store
@@ -58,10 +58,10 @@ jobs:
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
-          branch: gh-pages # 部署后提交到那个分支
-          github_token: ${{ secrets.my-draw-cicd }} # 
-          # deploy_key: ${{ secrets.my-draw-cicd }} # 使用密钥部署 Setting -> Secrets -> New repository secret -> Name: DEPLOY_KEY -> Value: your deploy key
+          # branch: gh-pages # 部署后提交到那个分支
+          github_token: ${{ secrets.MY_DRAW_SECRET }} # 
+          # deploy_key: ${{ secrets.MY_DRAW_CICD }} # 使用密钥部署 Setting -> Secrets -> New repository secret -> Name: DEPLOY_KEY -> Value: your deploy key
           publish_dir: ./dist # 这里填打包好的目录名称
-          folder: dist # 这里填打包好的目录名称
-          # publish_branch: gh-pages
+          # folder: dist # 这里填打包好的目录名称
+          publish_branch: gh-pages
           commit_message: '自动化部署'
