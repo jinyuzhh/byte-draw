@@ -38,7 +38,7 @@ import {
 } from "./pixiUtils"
 import {
   createBoundsHandlesLayer,
-  createMultiSelectionBox,
+  // createMultiSelectionBox,
   createResizeHandlesLayer,
   createSelectionOutline,
   createShape,
