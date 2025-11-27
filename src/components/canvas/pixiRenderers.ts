@@ -14,7 +14,7 @@ import type { TextStyleFontWeight } from "pixi.js"
 import type { CanvasElement } from "../../types/canvas"
 import type { ResizeDirection } from "./pixiConstants"
 import {
-  HANDLE_ACTIVE_COLOR,
+  // HANDLE_ACTIVE_COLOR,
   RESIZE_CURSORS,
   RESIZE_DIRECTIONS,
   SELECTION_COLOR,
