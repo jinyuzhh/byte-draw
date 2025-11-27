@@ -9,21 +9,21 @@ on:
       - README.md
 jobs:
     deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 8.6.2
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 20.X
-      - run: npm install
-      - run: npm run build
-      - name: action-Deploy
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.MY_DRAW_SECRET }}
-          BRANCH: gh-pages
-          publish_dir: ./dist
-          commit_message: '自动化部署'
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - uses: pnpm/action-setup@v2
+          with:
+            version: 8.6.2
+        - uses: actions/setup-node@v3
+          with:
+            node-version: 20.X
+        - run: npm install
+        - run: npm run build
+        - name: action-Deploy
+          uses: peaceiris/actions-gh-pages@v3
+          with:
+            github_token: ${{ secrets.MY_DRAW_SECRET }}
+            BRANCH: gh-pages
+            publish_dir: ./dist
+            commit_message: '自动化部署'
