@@ -783,44 +783,41 @@ export const PixiCanvas = () => {
       state.interactionMode === "select" &&
       state.selectedIds.length > 0
     ) {
-      const selectedElements = state.elements.filter((el) =>
-        state.selectedIds.includes(el.id)
-      )
+      // 遍历当前选中的每一个元素 ID
+      state.selectedIds.forEach((id) => {
+        const element = state.elements.find((el) => el.id === id)
+        if (!element) return
 
-      if (selectedElements.length === 0) return
 
-      // 计算包围盒
-      let bounds = { x: 0, y: 0, width: 0, height: 0, rotation: 0 }
-      const isMultiSelection = selectedElements.length > 1
-
-      if (isMultiSelection) {
-        const box = getBoundingBox(selectedElements)
-        if (box) {
-          bounds = { ...box, rotation: 0 }
+        // 构造该元素的 bounds 数据
+        const bounds = {
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+          rotation: element.rotation,
         }
-      } else {
-        const el = selectedElements[0]
-        bounds = { x: el.x, y: el.y, width: el.width, height: el.height, rotation: el.rotation }
-      }
 
-      // 绘制多选包围盒
-      if (isMultiSelection) {
-        const box = createMultiSelectionBox(bounds, handleSelectionBoxPointerDown)
-        content.addChild(box)
-      }
-
-      // 绘制控制点
-      if (!dragRef.current?.moved) {
-        const handlesLayer = createBoundsHandlesLayer({
-          bounds,
-          zoom: state.zoom,
-          activeDirection: resizeRef.current?.direction ?? null,
-          isMultiSelection,
-          selectedIds: state.selectedIds,
-          handleResizeStart,
-        })
-        content.addChild(handlesLayer)
-      }
+        // 绘制控制点 (仅在非拖动状态下显示，避免闪烁)
+        if (!dragRef.current?.moved) {
+          const handlesLayer = createBoundsHandlesLayer({
+            bounds,
+            zoom: state.zoom,
+            // 判断当前正在调整大小的元素是否是自己，如果是，则显示激活方向
+            activeDirection:
+              resizeRef.current?.ids.includes(id)
+                ? resizeRef.current?.direction ?? null
+                : null,
+            // 关键点1：强制设为 false，确保渲染所有 8 个控制点，而不是多选时的 4 个角
+            isMultiSelection: false, 
+            // 关键点2：传入 [id] 而非 state.selectedIds。
+            // 这样拖动某个元素的控制点时，只会改变该元素的大小，符合独立控制点的直觉。
+            selectedIds: [id], 
+            handleResizeStart,
+          })
+          content.addChild(handlesLayer)
+        }
+      })
     }
   }, [
     state,
