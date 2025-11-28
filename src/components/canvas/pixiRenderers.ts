@@ -18,7 +18,6 @@ import {
   RESIZE_CURSORS,
   RESIZE_DIRECTIONS,
   SELECTION_COLOR,
-  ROTATE_HANDLE_OFFSET,
 } from "./pixiConstants"
 import { getHandlePosition, hexToNumber } from "./pixiUtils"
 
@@ -239,8 +238,7 @@ export const createResizeHandlesLayer = (
     event: FederatedPointerEvent,
     ids: string[],
     direction: ResizeDirection
-  ) => void,
-  handleRotateStart?: (event: FederatedPointerEvent, id: string) => void
+  ) => void
 ) => {
   const handlesLayer = new Container()
   handlesLayer.sortableChildren = true
@@ -329,47 +327,6 @@ export const createResizeHandlesLayer = (
     })
     handlesLayer.addChild(handle)
   })
-
-  if (handleRotateStart) {
-    const rotateHandle = new Graphics()
-    rotateHandle.eventMode = "static"
-    rotateHandle.cursor = "alias" // 或者使用 url 自定义光标
-    rotateHandle.zIndex = 3 // 确保在最上层
-
-    const handleSize = 8 / zoom
-    // 计算右上角位置
-    const nePos = getHandlePosition("ne", element.width, element.height)
-    
-    // 旋转手柄位置：在右上角 (ne) 的基础上，再向上延伸 ROTATE_HANDLE_OFFSET 距离
-    // 因为 layer 已经旋转了，所以这里的 y 轴负方向就是相对于元素的“上方”
-    const rotateY = -ROTATE_HANDLE_OFFSET / zoom
-    
-    // 1. 绘制连接线 (从右上角连出来)
-    rotateHandle.moveTo(nePos.x, 0) // 从 ne 的 y=0 (top edge) 开始
-    rotateHandle.lineTo(nePos.x, rotateY)
-    rotateHandle.stroke({ width: 1 / zoom, color: 0x3b82f6 })
-
-    // 2. 绘制旋转圆点
-    rotateHandle.circle(nePos.x, rotateY, handleSize / 2)
-    rotateHandle.fill({ color: 0xffffff })
-    rotateHandle.stroke({ width: 1.5, color: 0x3b82f6 })
-
-    // 增加点击区域
-    rotateHandle.hitArea = new Rectangle(
-      nePos.x - handleSize,
-      rotateY - handleSize,
-      handleSize * 2,
-      handleSize * 2
-    )
-
-    rotateHandle.on("pointerdown", (event) => {
-      event.stopPropagation()
-      handleRotateStart(event, element.id)
-    })
-
-    handlesLayer.addChild(rotateHandle)
-  }
-
 
   return handlesLayer
 }
@@ -655,3 +612,4 @@ export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
 
   return container
 }
+

@@ -38,3 +38,4 @@ export const HANDLE_ACTIVE_COLOR = 0x00cae0
 export const ROTATE_HANDLE_OFFSET = 30
 // 旋转吸附角度 (15度对应弧度)
 export const SNAP_ANGLE = Math.PI / 12
+
