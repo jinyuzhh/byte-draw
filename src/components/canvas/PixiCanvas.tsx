@@ -29,6 +29,7 @@ import type { CanvasElement, GroupElement } from "../../types/canvas"
 import {
   MIN_ELEMENT_SIZE,
   SELECTION_COLOR,
+  SNAP_ANGLE,
   type ResizeDirection,
 } from "./pixiConstants"
 import {
@@ -43,6 +44,7 @@ import {
   createSelectionOutline,
   createShape,
   createSolidBoundsOutline,
+  createRotateTooltip
 } from "./pixiRenderers"
 import { RightClickMenu } from "./RightClickMenu"
 
@@ -83,6 +85,18 @@ export const PixiCanvas = () => {
   const contentRef = useRef<Container | null>(null)            // 内容容器引用（存放所有元素）
   const backgroundRef = useRef<Graphics | null>(null)          // 背景图形对象引用
 
+  //rotateRef 用于追踪旋转状态
+  const rotateRef = useRef<{
+    id: string
+    startRotation: number    // 初始元素角度
+    centerX: number          // 旋转中心 X (全局坐标)
+    centerY: number          // 旋转中心 Y (全局坐标)
+    startAngle: number       // 鼠标初始相对于中心的角度
+    snapshot: CanvasElement[]  // 用于撤销的快照
+    tooltip: Container | null // 角度提示对象引用
+    
+  } | null>(null)
+
   // 交互状态引用
   const dragRef = useRef<{
     ids: string[]                                    // 正在拖动的元素 ID 列表
@@ -91,6 +105,45 @@ export const PixiCanvas = () => {
     historySnapshot: CanvasElement[]                // 拖动开始时的历史记录快照
     moved: boolean                                  // 是否已移动（用于区分点击和拖动）
   } | null>(null)                                    // 拖动操作状态引用
+
+
+  const toRad = (deg: number) => deg * (Math.PI / 180);
+  const toDeg = (rad: number) => rad * (180 / Math.PI);
+
+  const handleRotateStart = useCallback((event: FederatedPointerEvent, id: string) => {
+    event.stopPropagation()
+    const content = contentRef.current
+    if (!content) return
+
+    const element = stateRef.current.elements.find(el => el.id === id)
+    if (!element) return
+
+    // 获取鼠标在 content 容器中的位置
+    const localPoint = event.getLocalPosition(content)
+
+    const rotationRad = toRad(element.rotation)
+    
+    const w2 = element.width / 2
+    const h2 = element.height / 2
+    const cos = Math.cos(rotationRad)
+    const sin = Math.sin(rotationRad)
+    
+    const centerX = element.x + w2 * cos - h2 * sin
+    const centerY = element.y + w2 * sin + h2 * cos
+
+    // 计算鼠标相对于中心的初始角度
+    const startMouseAngle = Math.atan2(localPoint.y - centerY, localPoint.x - centerX)
+
+    rotateRef.current = {
+      id,
+      startRotation: element.rotation,
+      centerX,
+      centerY,
+      startAngle: startMouseAngle,
+      snapshot: cloneElements(stateRef.current.elements), 
+      tooltip: null
+    }
+  }, [])
 
   const resizeRef = useRef<{
     ids: string[]                                                           // 正在调整大小的元素 ID
@@ -462,6 +515,52 @@ export const PixiCanvas = () => {
           performResize(current, dx, dy)
           return
         }
+        
+        // 旋转处理逻辑
+        if (rotateRef.current) {
+          const { centerX, centerY, startAngle, startRotation, id } = rotateRef.current
+          const local = event.getLocalPosition(content)
+          
+          // 1. 计算当前鼠标相对于中心的角度
+          const currentMouseAngle = Math.atan2(local.y - centerY, local.x - centerX)
+          
+          // 2. 计算角度差
+          let deltaRad = currentMouseAngle - startAngle
+          let newRotationDeg = startRotation + toDeg(deltaRad)
+
+          // 3. 处理 Shift 键吸附 (或者默认吸附，按住 Shift 微调)
+          // 支持吸附 (如每15度)，Shift 可控制。
+          // 假设：默认吸附，按住 Shift 取消吸附 (或者反之，看交互习惯，Figma是按住Shift吸附)
+          // 按住 Shift 键时启用 15度 吸附。
+          if (event.shiftKey) {
+            newRotationDeg = Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE
+          }
+
+          // 4. 更新元素 (预览效果)
+          // 此时不记录历史，只更新视觉
+          const newRotationRad = toRad(newRotationDeg)
+          const newCos = Math.cos(newRotationRad)
+          const newSin = Math.sin(newRotationRad)
+          mutateElements(
+            (elements) => elements.map(el => {
+              if (el.id !== id) return el           
+              const elW2 = el.width / 2
+              const elH2 = el.height / 2
+              
+              const newX = centerX - elW2 * newCos + elH2 * newSin
+              const newY = centerY - elW2 * newSin - elH2 * newCos
+              return {
+                ...el,
+                rotation: newRotationDeg,
+                x: newX,
+                y: newY
+              }
+            }),
+            { recordHistory: false }
+          )
+          
+          return // 结束处理，防止与其他事件冲突
+        }
 
         // 拖动处理：更新元素位置
         if (dragRef.current) {
@@ -495,8 +594,53 @@ export const PixiCanvas = () => {
         }
       })
 
+      // if (rotateRef.current && contentRef.current) {
+      //   const el = state.elements.find(e => e.id === rotateRef.current?.id)
+      //   if (el) {
+      //     // 如果 tooltip 已存在，销毁旧的（为了简单，或者更新文字）
+      //     if (rotateRef.current.tooltip) {
+      //       rotateRef.current.tooltip.destroy()
+      //     }
+          
+      //     // 创建新的 tooltip 并添加
+      //     // 注意：这里需要传入 zoom 来抵消缩放
+      //     const tooltip = createRotateTooltip(el, state.zoom)
+      //     // 修正位置：放到元素中心下方
+      //     const w2 = el.width / 2
+      //     const h2 = el.height / 2
+      //     const cos = Math.cos(el.rotation)
+      //     const sin = Math.sin(el.rotation)
+      //     const cx = el.x + w2 * cos - h2 * sin
+      //     const cy = el.y + w2 * sin + h2 * cos
+          
+      //     // Tooltip 位置：中心点往下偏移一定距离 (例如 60px)
+      //     tooltip.position.set(cx, cy + 60)
+          
+      //     contentRef.current.addChild(tooltip)
+      //     rotateRef.current.tooltip = tooltip
+      //   }
+      // }
+
       // 停止所有交互操作
-      const stopInteractions = () => {
+    const stopInteractions = () => {
+      if (rotateRef.current) {
+          // 1. 记录历史
+          mutateElements(
+          (elements) => elements, 
+          { 
+            // 使用开始时的快照作为历史记录的前一个状态
+            historySnapshot: rotateRef.current.snapshot
+          }
+        )
+        
+        // 2. 清理 Tooltip
+        if (rotateRef.current.tooltip) {
+          //rotateRef.current.tooltip.destroy()
+          rotateRef.current.tooltip = null
+        }
+        
+        rotateRef.current = null
+      }
         // 区域选择完成处理
         if (isSelectedRef.current && selectionBoxRef.current && selectionStartRef.current) {
           const selectionBox = selectionBoxRef.current;
@@ -824,12 +968,29 @@ export const PixiCanvas = () => {
             state.zoom,
             resizeRef.current?.direction ?? null,
             state.selectedIds,
-            handleResizeStart
+            handleResizeStart,
+            handleRotateStart
           )
           content.addChild(handlesLayer)
         }
       }
     }
+    if (rotateRef.current) {
+      const el = state.elements.find(e => e.id === rotateRef.current?.id)
+      if (el) {
+        // 创建新的 tooltip
+        const tooltip = createRotateTooltip(el, state.zoom)
+        
+        // 确保 Tooltip 在最上层
+        tooltip.zIndex = 100 
+        content.addChild(tooltip)
+        
+        // 更新引用以便销毁（虽然在 removeChildren 中会被自动销毁，但保持引用是个好习惯）
+        rotateRef.current.tooltip = tooltip
+      }
+    }
+
+
   }, [
     state,
     state.elements,
@@ -943,3 +1104,4 @@ export const PixiCanvas = () => {
     </div>
   )
 }
+
