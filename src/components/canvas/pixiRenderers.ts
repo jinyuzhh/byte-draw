@@ -18,6 +18,7 @@ import {
   RESIZE_CURSORS,
   RESIZE_DIRECTIONS,
   SELECTION_COLOR,
+  ROTATE_HANDLE_OFFSET,
 } from "./pixiConstants"
 import { getHandlePosition, hexToNumber } from "./pixiUtils"
 
@@ -32,9 +33,7 @@ type SelectionBounds = {
 export const createShape = async (
   element: CanvasElement,
   interactionMode: "select" | "pan",
-  onPointerDown: (event: FederatedPointerEvent) => void,
-  isDragging: boolean = false,
-  isResizing: boolean = false
+  onPointerDown: (event: FederatedPointerEvent) => void
 ) => {
   const container = new Container()
 
@@ -42,9 +41,7 @@ export const createShape = async (
   container.angle = element.rotation
   container.alpha = element.opacity
 
-  // 在拖动或调整大小过程中，禁用元素的交互以避免光标抖动
-  const isInteracting = isDragging || isResizing
-  container.eventMode = isInteracting ? "none" : "static"
+  container.eventMode = "static"
   container.cursor = interactionMode === "select" ? "move" : "grab"
   container.hitArea = new Rectangle(0, 0, element.width, element.height)
 
@@ -55,12 +52,12 @@ export const createShape = async (
     // 递归渲染组内的子元素
     if (element.children && element.children.length > 0) {
       for (const child of element.children) {
-        // 递归调用createShape渲染子元素，传递交互状态
+        // 递归调用createShape渲染子元素
         const childContainer = await createShape(child, interactionMode, (event) => {
           // 当点击子元素时，冒泡到父组的点击事件
           event.stopPropagation()
           onPointerDown(event)
-        }, isDragging, isResizing)
+        })
         // 子元素已经是相对于组的位置，直接添加到容器
         container.addChild(childContainer)
       }
@@ -242,7 +239,8 @@ export const createResizeHandlesLayer = (
     event: FederatedPointerEvent,
     ids: string[],
     direction: ResizeDirection
-  ) => void
+  ) => void,
+  handleRotateStart?: (event: FederatedPointerEvent, id: string) => void
 ) => {
   const handlesLayer = new Container()
   handlesLayer.sortableChildren = true
@@ -331,6 +329,47 @@ export const createResizeHandlesLayer = (
     })
     handlesLayer.addChild(handle)
   })
+
+  if (handleRotateStart) {
+    const rotateHandle = new Graphics()
+    rotateHandle.eventMode = "static"
+    rotateHandle.cursor = "alias" // 或者使用 url 自定义光标
+    rotateHandle.zIndex = 3 // 确保在最上层
+
+    const handleSize = 8 / zoom
+    // 计算右上角位置
+    const nePos = getHandlePosition("ne", element.width, element.height)
+    
+    // 旋转手柄位置：在右上角 (ne) 的基础上，再向上延伸 ROTATE_HANDLE_OFFSET 距离
+    // 因为 layer 已经旋转了，所以这里的 y 轴负方向就是相对于元素的“上方”
+    const rotateY = -ROTATE_HANDLE_OFFSET / zoom
+    
+    // 1. 绘制连接线 (从右上角连出来)
+    rotateHandle.moveTo(nePos.x, 0) // 从 ne 的 y=0 (top edge) 开始
+    rotateHandle.lineTo(nePos.x, rotateY)
+    rotateHandle.stroke({ width: 1 / zoom, color: 0x3b82f6 })
+
+    // 2. 绘制旋转圆点
+    rotateHandle.circle(nePos.x, rotateY, handleSize / 2)
+    rotateHandle.fill({ color: 0xffffff })
+    rotateHandle.stroke({ width: 1.5, color: 0x3b82f6 })
+
+    // 增加点击区域
+    rotateHandle.hitArea = new Rectangle(
+      nePos.x - handleSize,
+      rotateY - handleSize,
+      handleSize * 2,
+      handleSize * 2
+    )
+
+    rotateHandle.on("pointerdown", (event) => {
+      event.stopPropagation()
+      handleRotateStart(event, element.id)
+    })
+
+    handlesLayer.addChild(rotateHandle)
+  }
+
 
   return handlesLayer
 }
@@ -574,7 +613,7 @@ export const createBoundsHandlesLayer = ({
 export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
   const container = new Container()
   // 将角度转换为度数，并归一化到 0-360
-  let degrees = Math.round(element.rotation * (180 / Math.PI))
+  let degrees = Math.round(element.rotation) % 360
   if (degrees < 0) degrees += 360
   
   const text = new Text({
@@ -598,22 +637,11 @@ export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
   container.addChild(bg)
   container.addChild(text)
   
-  // 设置位置：元素正下方
-  // 此时 container 还没有添加到 layer 中，假设它会被添加到 content 容器
-  // 计算元素中心的全局位置，或者直接利用 element 的坐标
-  // 为了简单，让它跟随元素底部中心，并保持水平（抵消元素旋转）
-  
-  container.position.set(
-    element.x + element.width / 2, 
-    element.y + element.height + 20 + (20/zoom)
-  )
-  
   // 抵消画布的缩放，让文字始终保持清晰大小
   // 同时抵消元素的旋转（如果它是作为子元素添加的话），但通常 Tooltip 是加在顶层的
-  // 这里我们假设它加在 content 层，位置是绝对坐标
+  // 这里假设它加在 content 层，位置是绝对坐标
   container.pivot.set(bg.width / 2, 0) // 居中显示
   container.zIndex = 100
 
   return container
 }
-
