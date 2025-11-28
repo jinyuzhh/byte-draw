@@ -37,6 +37,7 @@ import {
   cloneElements,
   getBoundingBox,
 } from "./pixiUtils"
+import { calculateSnap, type GuideLine } from "./snapUtils"
 import {
   createBoundsHandlesLayer,
   // createMultiSelectionBox,
@@ -84,6 +85,8 @@ export const PixiCanvas = () => {
   const appRef = useRef<Application | null>(null)              // PixiJS 应用实例引用
   const contentRef = useRef<Container | null>(null)            // 内容容器引用（存放所有元素）
   const backgroundRef = useRef<Graphics | null>(null)          // 背景图形对象引用
+  const guidesRef = useRef<Graphics | null>(null)              // 辅助线图形对象引用
+  const currentGuidesRef = useRef<GuideLine[]>([])             // 当前辅助线数据
 
   //rotateRef 用于追踪旋转状态
   const rotateRef = useRef<{
@@ -942,6 +945,402 @@ export const PixiCanvas = () => {
             state.zoom,
             resizeRef.current?.direction ?? null,
             state.selectedIds,
+            handleResizeStart
+          )
+          content.addChild(handlesLayer)
+        }
+      }
+    }
+  }, [
+    state,
+    state.elements,
+    state.selectedIds,
+    state.interactionMode,
+    state.zoom,
+    handleElementPointerDown,
+    handleResizeStart,
+    handleSelectionBoxPointerDown,
+    renderElements,
+    renderPage,
+  ])
+
+  // 更新画布内容的位置和缩放
+  useEffect(() => {
+    const content = contentRef.current
+    const guides = guidesRef.current
+    if (!content) return
+    // 根据平移和缩放状态更新内容容器的变换
+    content.position.set(state.pan.x, state.pan.y)
+    content.scale.set(state.zoom)
+    
+    if (guides) {
+      guides.position.set(state.pan.x, state.pan.y)
+      guides.scale.set(state.zoom)
+    }
+  }, [state.pan, state.zoom])
+
+  // 更新背景光标样式
+  useEffect(() => {
+    const background = backgroundRef.current
+    if (!background) return
+    // 根据交互模式设置光标样式：平移模式显示抓手光标
+    background.cursor = state.interactionMode === "pan" ? "grab" : "default"
+  }, [state.interactionMode])
+
+  // 检查选中元素是否为组
+  const isGroupSelected = state.selectedIds.length === 1 &&
+    state.elements.find(el => el.id === state.selectedIds[0] && el.type === 'group') as GroupElement;
+
+  // 处理键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // 检查是否按下了Ctrl或Cmd键
+      const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+
+      // 打组快捷键: Ctrl+G
+      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && !event.shiftKey) {
+        event.preventDefault();
+        // 只有选中至少两个元素时才执行打组
+        if (state.selectedIds.length >= 2) {
+          groupElements();
+        }
+      }
+
+      // 解组快捷键: Ctrl+Shift+G
+      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && event.shiftKey) {
+        event.preventDefault();
+        // 只有选中一个组时才执行解组
+        if (isGroupSelected) {
+          ungroupElements();
+        }
+      }
+    };
+
+    // 添加键盘事件监听器
+    document.addEventListener('keydown', handleKeyDown);
+
+    // 清理事件监听器
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements])
+
+  /**
+ * 初始化 PixiJS 应用和设置事件监听器
+ * 
+ * @description 
+ * 这个 useEffect 负责：
+ * 1. 创建和初始化 PixiJS 应用实例
+ * 2. 设置背景层和内容层
+ * 3. 配置事件监听器（指针按下、移动、释放）
+ * 4. 设置容器大小变化观察器
+ * 5. 在组件卸载时清理资源
+ */
+  useEffect(() => {
+    let destroyed = false
+
+    // 更新背景层大小和交互区域
+    const updateBackground = () => {
+      const app = appRef.current
+      const background = backgroundRef.current
+      if (!app || !background) return
+      background.clear()
+      background.rect(0, 0, app.screen.width, app.screen.height)
+      background.fill({ color: 0xffffff, alpha: 0 })
+      background.hitArea = app.screen
+    }
+
+    // 初始化 PixiJS 应用
+    const setup = async () => {
+      if (!wrapperRef.current) return
+      const app = new Application()
+      await app.init({
+        antialias: true,                    // 启用抗锯齿
+        backgroundAlpha: 0,                  // 透明背景
+        resolution: window.devicePixelRatio || 1,  // 设备像素比
+        resizeTo: wrapperRef.current,       // 自动调整大小到容器
+      })
+      if (destroyed) {
+        app.destroy()
+        return
+      }
+
+      // 将画布添加到 DOM
+      wrapperRef.current.appendChild(app.canvas)
+
+      // 设置舞台交互模式
+      app.stage.eventMode = "static"
+      app.stage.hitArea = app.screen
+      app.stage.sortableChildren = true // 启用子元素排序
+
+      // 创建背景层（用于处理画布点击和平移）
+      const background = new Graphics()
+      background.alpha = 0
+      background.eventMode = "static"
+      background.cursor = "default"
+      background.hitArea = app.screen
+      app.stage.addChild(background)
+
+      // 创建内容层（用于存放所有画布元素）
+      const content = new Container()
+      content.eventMode = "static"
+      app.stage.addChild(content)
+
+      // 创建辅助线层
+      const guides = new Graphics()
+      guides.eventMode = "none" // 不参与交互
+      guides.zIndex = 9999 // 确保在最上层
+      app.stage.addChild(guides)
+      guidesRef.current = guides
+
+      // 保存引用
+      appRef.current = app
+      contentRef.current = content
+      backgroundRef.current = background
+      registerApp(app)
+
+      // 立即渲染现有元素
+      if (stateRef.current.elements.length > 0) {
+        renderElements(content, stateRef.current.elements, stateRef.current)
+      }
+
+      // 设置容器大小变化观察器
+      const resizeObserver = new ResizeObserver(() => {
+        app.resize()
+        updateBackground()
+      })
+      resizeObserver.observe(wrapperRef.current)
+      resizeObserverRef.current = resizeObserver
+
+      // 背景层指针按下事件处理
+      background.on("pointerdown", (event: FederatedPointerEvent) => {
+        // 处理右键点击
+        if (event.originalEvent && (event.originalEvent as any).button === 2) {
+          event.preventDefault();
+          return;
+        }
+
+        // 平移模式：初始化平移状态
+        if (stateRef.current.interactionMode === "pan") {
+          panRef.current = {
+            lastPointer: { x: event.global.x, y: event.global.y },
+          }
+          background.cursor = "grabbing"
+        }
+        // 选择模式：处理区域选择
+        else if (stateRef.current.interactionMode === "select") {
+          const nativeEvent = event.originalEvent as unknown as MouseEvent;
+          // 只有在没有修饰键且点击的是背景时才开始区域选择
+          if (!(nativeEvent.shiftKey || nativeEvent.metaKey || nativeEvent.ctrlKey) && event.target === background) {
+            // 记录选择开始位置
+            const localPos = event.getLocalPosition(content);
+            selectionStartRef.current = { x: localPos.x, y: localPos.y };
+            isSelectedRef.current = true;
+
+            // 创建选择框
+            const selectionBox = new Graphics();
+            selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
+            selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+            selectionBox.zIndex = 100;
+            content.addChild(selectionBox);
+            selectionBoxRef.current = selectionBox;
+          }
+        } else {
+          // 其他模式：清除选择
+          clearSelection()
+        }
+      })
+
+      // 定义阻止浏览器默认右键菜单的函数
+      preventContextMenu = (e: Event) => {
+        e.preventDefault();
+      };
+
+      // 处理右键菜单
+      const handleRightClick = (event: FederatedPointerEvent) => {
+        event.preventDefault();
+
+        // 只有在选择模式下才显示右键菜单
+        if (stateRef.current.interactionMode !== "select") {
+          return;
+        }
+
+        // 获取事件的屏幕坐标
+        const originalEvent = event.originalEvent as any;
+        const x = originalEvent.clientX;
+        const y = originalEvent.clientY;
+
+        setRightClickMenu({
+          isVisible: true,
+          x,
+          y
+        });
+      };
+
+      // 为舞台添加右键事件监听器
+      app.stage.on("rightclick", handleRightClick);
+
+      // 在canvas元素上添加contextmenu事件监听器，完全阻止浏览器默认右键菜单
+      if (appRef.current && appRef.current.canvas) {
+        appRef.current.canvas.addEventListener('contextmenu', preventContextMenu);
+      }
+
+      // 定义滚轮事件处理函数
+      const handleGlobalWheel = (event: WheelEvent) => {
+        // 检查是否按下了ctrl键或meta键（Mac）
+        if (event.ctrlKey || event.metaKey) {
+          // 无论鼠标是否在画布上，都阻止浏览器默认缩放行为
+          event.preventDefault();
+          event.stopPropagation();
+
+          // 获取画布元素
+          const canvas = app.canvas;
+          const rect = canvas.getBoundingClientRect();
+
+          // 检查鼠标是否在画布范围内
+          const isMouseInCanvas = (
+            event.clientX >= rect.left &&
+            event.clientX <= rect.right &&
+            event.clientY >= rect.top &&
+            event.clientY <= rect.bottom
+          );
+
+          // 只有当鼠标在画布上时，才进行画布缩放
+          if (isMouseInCanvas) {
+            // 根据滚轮方向调整缩放比例
+            const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+            const newZoom = stateRef.current.zoom * zoomFactor;
+
+            // 使用setZoom方法设置新的缩放级别
+            setZoom(newZoom);
+          }
+          // 如果鼠标不在画布上，不执行任何缩放操作，但仍然阻止浏览器的默认缩放行为
+        }
+      };
+
+      // 添加全局滚轮事件监听器
+      window.addEventListener('wheel', handleGlobalWheel, { passive: false });
+
+      // 舞台指针移动事件处理
+      app.stage.on("pointermove", (event: FederatedPointerEvent) => {
+        const content = contentRef.current
+        if (!content) return
+
+        // 区域选择处理：更新选择框大小
+        if (isSelectedRef.current && selectionStartRef.current && selectionBoxRef.current) {
+          const localPos = event.getLocalPosition(content);
+          const start = selectionStartRef.current;
+
+          // 计算选择框的位置和尺寸
+          const x = Math.min(start.x, localPos.x);
+          const y = Math.min(start.y, localPos.y);
+          const width = Math.abs(start.x - localPos.x);
+          const height = Math.abs(start.y - localPos.y);
+
+          // 绘制选择框
+          const selectionBox = selectionBoxRef.current;
+          selectionBox.clear();
+          selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
+          selectionBox.beginFill(SELECTION_COLOR, 0.1);
+          selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+          selectionBox.drawRect(x, y, width, height);
+          selectionBox.endFill();
+          return;
+        }
+
+        // 调整大小处理：更新元素尺寸
+        if (resizeRef.current) {
+          const current = resizeRef.current
+          const local = event.getLocalPosition(content)
+          const dx = local.x - current.startPointer.x
+          const dy = local.y - current.startPointer.y
+          current.moved = true
+          performResize(current, dx, dy)
+          return
+        }
+
+        // 拖动处理：更新元素位置
+        if (dragRef.current) {
+          const current = dragRef.current
+          const local = event.getLocalPosition(content)
+          const dx = local.x - current.startPointer.x
+          const dy = local.y - current.startPointer.y
+
+          // Calculate snap
+          const movingElements = stateRef.current.elements.filter(el => current.ids.includes(el.id));
+          const zoom = stateRef.current.zoom;
+          const { dx: snappedDx, dy: snappedDy, guides } = calculateSnap(
+            movingElements,
+            stateRef.current.elements,
+            dx,
+            dy,
+            current.snapshot,
+            5 / zoom // Adjust threshold based on zoom
+          );
+          
+          currentGuidesRef.current = guides;
+
+          // Draw guides immediately
+          if (guidesRef.current) {
+            const g = guidesRef.current;
+            g.clear();
+            if (guides.length > 0) {
+              // Use a fixed width of at least 1px to ensure visibility
+              const lineWidth = Math.max(1, 1 / zoom);
+              
+              const app = appRef.current;
+              if (app) {
+                const pan = stateRef.current.pan;
+                const screen = app.screen;
+                // Calculate visible bounds in local coordinates
+                // Add extra padding to ensure lines go off-screen
+                const padding = 5000 / zoom; 
+                const minX = (-pan.x / zoom) - padding;
+                const maxX = ((screen.width - pan.x) / zoom) + padding;
+                const minY = (-pan.y / zoom) - padding;
+                const maxY = ((screen.height - pan.y) / zoom) + padding;
+
+                guides.forEach(guide => {
+                  if (guide.type === 'horizontal') {
+                    g.moveTo(minX, guide.coor);
+                    g.lineTo(maxX, guide.coor);
+                  } else {
+                    g.moveTo(guide.coor, minY);
+                    g.lineTo(guide.coor, maxY);
+                  }
+                });
+                // PixiJS v8 way to stroke the path
+                g.stroke({ width: lineWidth, color: 0x947eec, alpha: 1 });
+              }
+            }
+          }
+
+          // 只有移动距离足够大才认为是拖动（避免误触）
+          if (Math.abs(snappedDx) > 0.01 || Math.abs(snappedDy) > 0.01) {
+            current.moved = true
+            mutateElements(
+              (elements) =>
+                elements.map((el) => {
+                  if (!current.ids.includes(el.id)) return el
+                  const base = current.snapshot[el.id] ?? el
+                  return { ...el, x: base.x + snappedDx, y: base.y + snappedDy }
+                }) as CanvasElement[],
+              { recordHistory: false }
+            )
+          }
+          return
+        }
+      } 
+      // 处理单选情况 
+      else if (selectedElements.length === 1) {
+        const element = selectedElements[0]
+        // 单选时，createShape 循环里已经画了虚线框，这里只负责画 ResizeHandles (控制点)
+        if (!dragRef.current?.moved) {
+          const handlesLayer = createResizeHandlesLayer(
+            element,
+            state.zoom,
+            resizeRef.current?.direction ?? null,
+            state.selectedIds,
             handleResizeStart,
             handleRotateStart
           )
@@ -1001,65 +1400,96 @@ export const PixiCanvas = () => {
     renderPage,
   ])
 
-  // 更新画布内容的位置和缩放
-  useEffect(() => {
-    const content = contentRef.current
-    if (!content) return
-    // 根据平移和缩放状态更新内容容器的变换
-    content.position.set(state.pan.x, state.pan.y)
-    content.scale.set(state.zoom)
-  }, [state.pan, state.zoom])
+      // 停止所有交互操作
+      const stopInteractions = () => {
+        // 区域选择完成处理
+        if (isSelectedRef.current && selectionBoxRef.current && selectionStartRef.current) {
+          const selectionBox = selectionBoxRef.current;
+          // 获取选择框的边界
+          const bounds = selectionBox.getBounds();
+          const selectionRect = new Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
 
-  // 更新背景光标样式
-  useEffect(() => {
-    const background = backgroundRef.current
-    if (!background) return
-    // 根据交互模式设置光标样式：平移模式显示抓手光标
-    background.cursor = state.interactionMode === "pan" ? "grab" : "default"
-  }, [state.interactionMode])
+          // 找出与选择框相交的所有元素
+          const selectedElements = stateRef.current.elements.filter(elem => {
+            const elemRect = new Rectangle(elem.x, elem.y, elem.width, elem.height);
+            return selectionRect.intersects(elemRect); // 检查元素是否与选择框相交
+          });
 
-  // 检查选中元素是否为组
-  const isGroupSelected = state.selectedIds.length === 1 &&
-    state.elements.find(el => el.id === state.selectedIds[0] && el.type === 'group') as GroupElement;
+          // 更新选择状态
+          if (selectedElements.length > 0) {
+            setSelection(selectedElements.map((el) => el.id));
+          } else {
+            clearSelection();
+          }
 
-  // 处理键盘快捷键
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // 检查是否按下了Ctrl或Cmd键
-      const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-
-      // 打组快捷键: Ctrl+G
-      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && !event.shiftKey) {
-        event.preventDefault();
-        // 只有选中至少两个元素时才执行打组
-        if (state.selectedIds.length >= 2) {
-          groupElements();
+          // 清除选择框
+          selectionBox.destroy();
+          selectionBoxRef.current = null;
         }
+
+        // 重置区域选择状态
+        isSelectedRef.current = false;
+        selectionStartRef.current = null;
+
+        // 重置平移光标
+        const background = backgroundRef.current
+        if (panRef.current && background) {
+          background.cursor = "default"
+        }
+
+        // 记录拖动操作的历史
+        if (dragRef.current?.moved) {
+          currentGuidesRef.current = [];
+          if (guidesRef.current) {
+            guidesRef.current.clear();
+          }
+          mutateElements(
+            (elements) => elements,
+            {
+              historySnapshot: dragRef.current.historySnapshot,
+            }
+          )
+        }
+
+        // 记录调整大小操作的历史
+        if (resizeRef.current?.moved) {
+          mutateElements(
+            (elements) => elements,
+            {
+              historySnapshot: resizeRef.current.historySnapshot,
+            }
+          )
+        }
+
+        // 清除所有交互状态
+        dragRef.current = null
+        resizeRef.current = null
+        panRef.current = null
       }
 
-      // 解组快捷键: Ctrl+Shift+G
-      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && event.shiftKey) {
-        event.preventDefault();
-        // 只有选中一个组时才执行解组
-        if (isGroupSelected) {
-          ungroupElements();
-        }
-      }
-    };
+      app.stage.on("pointerup", stopInteractions)
+      app.stage.on("pointerupoutside", stopInteractions)
+    }
 
-    // 添加键盘事件监听器
-    document.addEventListener('keydown', handleKeyDown);
+    setup()
 
-    // 清理事件监听器
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      // 移除canvas上的contextmenu事件监听器
-      if (appRef.current && appRef.current.canvas && preventContextMenu) {
-        appRef.current.canvas.removeEventListener('contextmenu', preventContextMenu);
-        preventContextMenu = null;
+      destroyed = true
+      resizeObserverRef.current?.disconnect()
+      const app = appRef.current
+      app?.stage.removeAllListeners()
+      app?.destroy(true)
+      registerApp(null)
+      appRef.current = null
+      contentRef.current = null
+      backgroundRef.current = null
+      // 移除全局滚轮事件监听器
+      if (handleGlobalWheel) {
+        window.removeEventListener('wheel', handleGlobalWheel)
+        handleGlobalWheel = null
       }
-    };
-  }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements])
+    }
+  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection, renderPage])
 
   // 准备右键菜单项
   const menuItems = [
