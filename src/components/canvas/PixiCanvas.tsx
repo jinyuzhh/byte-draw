@@ -665,8 +665,8 @@ export const PixiCanvas = () => {
           let newRotationDeg = startRotation + toDeg(deltaRad)
 
           if (event.shiftKey) {
-            const SNAP_DEGREE = 15
-            newRotationDeg = Math.round(newRotationDeg / SNAP_DEGREE) * SNAP_DEGREE
+            
+            newRotationDeg = Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE
           }
 
           const newRotationRad = toRad(newRotationDeg)
