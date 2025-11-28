@@ -32,7 +32,9 @@ type SelectionBounds = {
 export const createShape = async (
   element: CanvasElement,
   interactionMode: "select" | "pan",
-  onPointerDown: (event: FederatedPointerEvent) => void
+  onPointerDown: (event: FederatedPointerEvent) => void,
+  isDragging: boolean = false,
+  isResizing: boolean = false
 ) => {
   const container = new Container()
 
@@ -40,7 +42,9 @@ export const createShape = async (
   container.angle = element.rotation
   container.alpha = element.opacity
 
-  container.eventMode = "static"
+  // 在拖动或调整大小过程中，禁用元素的交互以避免光标抖动
+  const isInteracting = isDragging || isResizing
+  container.eventMode = isInteracting ? "none" : "static"
   container.cursor = interactionMode === "select" ? "move" : "grab"
   container.hitArea = new Rectangle(0, 0, element.width, element.height)
 
@@ -51,12 +55,12 @@ export const createShape = async (
     // 递归渲染组内的子元素
     if (element.children && element.children.length > 0) {
       for (const child of element.children) {
-        // 递归调用createShape渲染子元素
+        // 递归调用createShape渲染子元素，传递交互状态
         const childContainer = await createShape(child, interactionMode, (event) => {
           // 当点击子元素时，冒泡到父组的点击事件
           event.stopPropagation()
           onPointerDown(event)
-        })
+        }, isDragging, isResizing)
         // 子元素已经是相对于组的位置，直接添加到容器
         container.addChild(childContainer)
       }
