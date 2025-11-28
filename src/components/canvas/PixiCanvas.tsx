@@ -29,6 +29,7 @@ import type { CanvasElement, GroupElement } from "../../types/canvas"
 import {
   MIN_ELEMENT_SIZE,
   SELECTION_COLOR,
+  SNAP_ANGLE,
   type ResizeDirection,
 } from "./pixiConstants"
 import {
@@ -44,6 +45,7 @@ import {
   createSelectionOutline,
   createShape,
   createSolidBoundsOutline,
+  createRotateTooltip
 } from "./pixiRenderers"
 import { RightClickMenu } from "./RightClickMenu"
 
@@ -86,6 +88,18 @@ export const PixiCanvas = () => {
   const guidesRef = useRef<Graphics | null>(null)              // 辅助线图形对象引用
   const currentGuidesRef = useRef<GuideLine[]>([])             // 当前辅助线数据
 
+  //rotateRef 用于追踪旋转状态
+  const rotateRef = useRef<{
+    id: string
+    startRotation: number    // 初始元素角度
+    centerX: number          // 旋转中心 X (全局坐标)
+    centerY: number          // 旋转中心 Y (全局坐标)
+    startAngle: number       // 鼠标初始相对于中心的角度
+    snapshot: CanvasElement[]  // 用于撤销的快照
+    tooltip: Container | null // 角度提示对象引用
+    
+  } | null>(null)
+
   // 交互状态引用
   const dragRef = useRef<{
     ids: string[]                                    // 正在拖动的元素 ID 列表
@@ -94,6 +108,45 @@ export const PixiCanvas = () => {
     historySnapshot: CanvasElement[]                // 拖动开始时的历史记录快照
     moved: boolean                                  // 是否已移动（用于区分点击和拖动）
   } | null>(null)                                    // 拖动操作状态引用
+
+
+  const toRad = (deg: number) => deg * (Math.PI / 180);
+  const toDeg = (rad: number) => rad * (180 / Math.PI);
+
+  const handleRotateStart = useCallback((event: FederatedPointerEvent, id: string) => {
+    event.stopPropagation()
+    const content = contentRef.current
+    if (!content) return
+
+    const element = stateRef.current.elements.find(el => el.id === id)
+    if (!element) return
+
+    // 获取鼠标在 content 容器中的位置
+    const localPoint = event.getLocalPosition(content)
+
+    const rotationRad = toRad(element.rotation)
+    
+    const w2 = element.width / 2
+    const h2 = element.height / 2
+    const cos = Math.cos(rotationRad)
+    const sin = Math.sin(rotationRad)
+    
+    const centerX = element.x + w2 * cos - h2 * sin
+    const centerY = element.y + w2 * sin + h2 * cos
+
+    // 计算鼠标相对于中心的初始角度
+    const startMouseAngle = Math.atan2(localPoint.y - centerY, localPoint.x - centerX)
+
+    rotateRef.current = {
+      id,
+      startRotation: element.rotation,
+      centerX,
+      centerY,
+      startAngle: startMouseAngle,
+      snapshot: cloneElements(stateRef.current.elements), 
+      tooltip: null
+    }
+  }, [])
 
   const resizeRef = useRef<{
     ids: string[]                                                           // 正在调整大小的元素 ID
@@ -240,7 +293,415 @@ export const PixiCanvas = () => {
     [mutateElements]
   )
 
+  /**
+ * 初始化 PixiJS 应用和设置事件监听器
+ * 
+ * @description 
+ * 这个 useEffect 负责：
+ * 1. 创建和初始化 PixiJS 应用实例
+ * 2. 设置背景层和内容层
+ * 3. 配置事件监听器（指针按下、移动、释放）
+ * 4. 设置容器大小变化观察器
+ * 5. 在组件卸载时清理资源
+ */
+  useEffect(() => {
+    let destroyed = false
 
+    // 更新背景层大小和交互区域
+    const updateBackground = () => {
+      const app = appRef.current
+      const background = backgroundRef.current
+      if (!app || !background) return
+      background.clear()
+      background.rect(0, 0, app.screen.width, app.screen.height)
+      background.fill({ color: 0xffffff, alpha: 0 })
+      background.hitArea = app.screen
+    }
+
+    // 初始化 PixiJS 应用
+    const setup = async () => {
+      if (!wrapperRef.current) return
+      const app = new Application()
+      await app.init({
+        antialias: true,                    // 启用抗锯齿
+        backgroundAlpha: 0,                  // 透明背景
+        resolution: window.devicePixelRatio || 1,  // 设备像素比
+        resizeTo: wrapperRef.current,       // 自动调整大小到容器
+      })
+      if (destroyed) {
+        app.destroy()
+        return
+      }
+
+      // 将画布添加到 DOM
+      wrapperRef.current.appendChild(app.canvas)
+
+      // 设置舞台交互模式
+      app.stage.eventMode = "static"
+      app.stage.hitArea = app.screen
+
+      // 创建背景层（用于处理画布点击和平移）
+      const background = new Graphics()
+      background.alpha = 0
+      background.eventMode = "static"
+      background.cursor = "default"
+      background.hitArea = app.screen
+      app.stage.addChild(background)
+
+      // 创建内容层（用于存放所有画布元素）
+      const content = new Container()
+      content.eventMode = "static"
+      app.stage.addChild(content)
+
+      // 保存引用
+      appRef.current = app
+      contentRef.current = content
+      backgroundRef.current = background
+      registerApp(app)
+
+      // 立即渲染现有元素
+      if (stateRef.current.elements.length > 0) {
+        renderElements(content, stateRef.current.elements, stateRef.current)
+      }
+
+      // 设置容器大小变化观察器
+      const resizeObserver = new ResizeObserver(() => {
+        app.resize()
+        updateBackground()
+      })
+      resizeObserver.observe(wrapperRef.current)
+      resizeObserverRef.current = resizeObserver
+
+      // 背景层指针按下事件处理
+      background.on("pointerdown", (event: FederatedPointerEvent) => {
+        // 处理右键点击
+        if (event.originalEvent && (event.originalEvent as any).button === 2) {
+          event.preventDefault();
+          return;
+        }
+
+        // 平移模式：初始化平移状态
+        if (stateRef.current.interactionMode === "pan") {
+          panRef.current = {
+            lastPointer: { x: event.global.x, y: event.global.y },
+          }
+          background.cursor = "grabbing"
+        }
+        // 选择模式：处理区域选择
+        else if (stateRef.current.interactionMode === "select") {
+          const nativeEvent = event.originalEvent as unknown as MouseEvent;
+          // 只有在没有修饰键且点击的是背景时才开始区域选择
+          if (!(nativeEvent.shiftKey || nativeEvent.metaKey || nativeEvent.ctrlKey) && event.target === background) {
+            // 记录选择开始位置
+            const localPos = event.getLocalPosition(content);
+            selectionStartRef.current = { x: localPos.x, y: localPos.y };
+            isSelectedRef.current = true;
+
+            // 创建选择框
+            const selectionBox = new Graphics();
+            selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
+            selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+            selectionBox.zIndex = 100;
+            content.addChild(selectionBox);
+            selectionBoxRef.current = selectionBox;
+          }
+        } else {
+          // 其他模式：清除选择
+          clearSelection()
+        }
+      })
+
+      // 定义阻止浏览器默认右键菜单的函数
+      preventContextMenu = (e: Event) => {
+        e.preventDefault();
+      };
+
+      // 处理右键菜单
+      const handleRightClick = (event: FederatedPointerEvent) => {
+        event.preventDefault();
+
+        // 只有在选择模式下才显示右键菜单
+        if (stateRef.current.interactionMode !== "select") {
+          return;
+        }
+
+        // 获取事件的屏幕坐标
+        const originalEvent = event.originalEvent as any;
+        const x = originalEvent.clientX;
+        const y = originalEvent.clientY;
+
+        setRightClickMenu({
+          isVisible: true,
+          x,
+          y
+        });
+      };
+
+      // 为舞台添加右键事件监听器
+      app.stage.on("rightclick", handleRightClick);
+
+      // 在canvas元素上添加contextmenu事件监听器，完全阻止浏览器默认右键菜单
+      if (appRef.current && appRef.current.canvas) {
+        appRef.current.canvas.addEventListener('contextmenu', preventContextMenu);
+      }
+
+      // 定义滚轮事件处理函数
+      const handleGlobalWheel = (event: WheelEvent) => {
+        // 检查是否按下了ctrl键或meta键（Mac）
+        if (event.ctrlKey || event.metaKey) {
+          // 无论鼠标是否在画布上，都阻止浏览器默认缩放行为
+          event.preventDefault();
+          event.stopPropagation();
+
+          // 获取画布元素
+          const canvas = app.canvas;
+          const rect = canvas.getBoundingClientRect();
+
+          // 检查鼠标是否在画布范围内
+          const isMouseInCanvas = (
+            event.clientX >= rect.left &&
+            event.clientX <= rect.right &&
+            event.clientY >= rect.top &&
+            event.clientY <= rect.bottom
+          );
+
+          // 只有当鼠标在画布上时，才进行画布缩放
+          if (isMouseInCanvas) {
+            // 根据滚轮方向调整缩放比例
+            const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+            const newZoom = stateRef.current.zoom * zoomFactor;
+
+            // 使用setZoom方法设置新的缩放级别
+            setZoom(newZoom);
+          }
+          // 如果鼠标不在画布上，不执行任何缩放操作，但仍然阻止浏览器的默认缩放行为
+        }
+      };
+
+      // 添加全局滚轮事件监听器
+      window.addEventListener('wheel', handleGlobalWheel, { passive: false });
+
+      // 舞台指针移动事件处理
+      app.stage.on("pointermove", (event: FederatedPointerEvent) => {
+        const content = contentRef.current
+        if (!content) return
+
+        // 区域选择处理：更新选择框大小
+        if (isSelectedRef.current && selectionStartRef.current && selectionBoxRef.current) {
+          const localPos = event.getLocalPosition(content);
+          const start = selectionStartRef.current;
+
+          // 计算选择框的位置和尺寸
+          const x = Math.min(start.x, localPos.x);
+          const y = Math.min(start.y, localPos.y);
+          const width = Math.abs(start.x - localPos.x);
+          const height = Math.abs(start.y - localPos.y);
+
+          // 绘制选择框
+          const selectionBox = selectionBoxRef.current;
+          selectionBox.clear();
+          selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
+          selectionBox.beginFill(SELECTION_COLOR, 0.1);
+          selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+          selectionBox.drawRect(x, y, width, height);
+          selectionBox.endFill();
+          return;
+        }
+
+        // 调整大小处理：更新元素尺寸
+        if (resizeRef.current) {
+          const current = resizeRef.current
+          const local = event.getLocalPosition(content)
+          const dx = local.x - current.startPointer.x
+          const dy = local.y - current.startPointer.y
+          current.moved = true
+          performResize(current, dx, dy)
+          return
+        }
+        
+        // 旋转处理逻辑
+        if (rotateRef.current) {
+          const { centerX, centerY, startAngle, startRotation, id } = rotateRef.current
+          const local = event.getLocalPosition(content)
+          
+          // 1. 计算当前鼠标相对于中心的角度
+          const currentMouseAngle = Math.atan2(local.y - centerY, local.x - centerX)
+          
+          // 2. 计算角度差
+          let deltaRad = currentMouseAngle - startAngle
+          let newRotationDeg = startRotation + toDeg(deltaRad)
+
+          // 3. 处理 Shift 键吸附 (或者默认吸附，按住 Shift 微调)
+          // 支持吸附 (如每15度)，Shift 可控制。
+          // 假设：默认吸附，按住 Shift 取消吸附 (或者反之，看交互习惯，Figma是按住Shift吸附)
+          // 按住 Shift 键时启用 15度 吸附。
+          if (event.shiftKey) {
+            newRotationDeg = Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE
+          }
+
+          // 4. 更新元素 (预览效果)
+          // 此时不记录历史，只更新视觉
+          const newRotationRad = toRad(newRotationDeg)
+          const newCos = Math.cos(newRotationRad)
+          const newSin = Math.sin(newRotationRad)
+          mutateElements(
+            (elements) => elements.map(el => {
+              if (el.id !== id) return el           
+              const elW2 = el.width / 2
+              const elH2 = el.height / 2
+              
+              const newX = centerX - elW2 * newCos + elH2 * newSin
+              const newY = centerY - elW2 * newSin - elH2 * newCos
+              return {
+                ...el,
+                rotation: newRotationDeg,
+                x: newX,
+                y: newY
+              }
+            }),
+            { recordHistory: false }
+          )
+          
+          return // 结束处理，防止与其他事件冲突
+        }
+
+        // 拖动处理：更新元素位置
+        if (dragRef.current) {
+          const current = dragRef.current
+          const local = event.getLocalPosition(content)
+          const dx = local.x - current.startPointer.x
+          const dy = local.y - current.startPointer.y
+          // 只有移动距离足够大才认为是拖动（避免误触）
+          if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+            current.moved = true
+            mutateElements(
+              (elements) =>
+                elements.map((el) => {
+                  if (!current.ids.includes(el.id)) return el
+                  const base = current.snapshot[el.id] ?? el
+                  return { ...el, x: base.x + dx, y: base.y + dy }
+                }) as CanvasElement[],
+              { recordHistory: false }
+            )
+          }
+          return
+        }
+
+        // 平移处理：更新画布视口
+        if (panRef.current) {
+          const last = panRef.current.lastPointer
+          const dx = event.global.x - last.x
+          const dy = event.global.y - last.y
+          panRef.current.lastPointer = { x: event.global.x, y: event.global.y }
+          panBy({ x: dx, y: dy })
+        }
+      })
+
+
+      // 停止所有交互操作
+    const stopInteractions = () => {
+      if (rotateRef.current) {
+          // 1. 记录历史
+          mutateElements(
+          (elements) => elements, 
+          { 
+            // 使用开始时的快照作为历史记录的前一个状态
+            historySnapshot: rotateRef.current.snapshot
+          }
+        )
+        
+        // 2. 清理 Tooltip
+        if (rotateRef.current.tooltip) {
+          //rotateRef.current.tooltip.destroy()
+          rotateRef.current.tooltip = null
+        }
+        
+        rotateRef.current = null
+      }
+        // 区域选择完成处理
+        if (isSelectedRef.current && selectionBoxRef.current && selectionStartRef.current) {
+          const selectionBox = selectionBoxRef.current;
+          // 获取选择框的边界
+          const bounds = selectionBox.getBounds();
+          const selectionRect = new Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
+
+          // 找出与选择框相交的所有元素
+          const selectedElements = stateRef.current.elements.filter(elem => {
+            const elemRect = new Rectangle(elem.x, elem.y, elem.width, elem.height);
+            return selectionRect.intersects(elemRect); // 检查元素是否与选择框相交
+          });
+
+          // 更新选择状态
+          if (selectedElements.length > 0) {
+            setSelection(selectedElements.map((el) => el.id));
+          } else {
+            clearSelection();
+          }
+
+          // 清除选择框
+          selectionBox.destroy();
+          selectionBoxRef.current = null;
+        }
+
+        // 重置区域选择状态
+        isSelectedRef.current = false;
+        selectionStartRef.current = null;
+
+        // 重置平移光标
+        const background = backgroundRef.current
+        if (panRef.current && background) {
+          background.cursor = "default"
+        }
+
+        // 记录拖动操作的历史
+        if (dragRef.current?.moved) {
+          mutateElements(
+            (elements) => elements,
+            {
+              historySnapshot: dragRef.current.historySnapshot,
+            }
+          )
+        }
+
+        // 记录调整大小操作的历史
+        if (resizeRef.current?.moved) {
+          mutateElements(
+            (elements) => elements,
+            {
+              historySnapshot: resizeRef.current.historySnapshot,
+            }
+          )
+        }
+
+        // 清除所有交互状态
+        dragRef.current = null
+        resizeRef.current = null
+        panRef.current = null
+      }
+
+      app.stage.on("pointerup", stopInteractions)
+      app.stage.on("pointerupoutside", stopInteractions)
+    }
+
+    setup()
+
+    return () => {
+      destroyed = true
+      resizeObserverRef.current?.disconnect()
+      const app = appRef.current
+      app?.stage.removeAllListeners()
+      app?.destroy(true)
+      registerApp(null)
+      appRef.current = null
+      contentRef.current = null
+      backgroundRef.current = null
+      // 移除全局滚轮事件监听器
+      if (handleGlobalWheel) {
+        window.removeEventListener('wheel', handleGlobalWheel)
+        handleGlobalWheel = null
+      }
+    }
+  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection, renderPage])
 
   /**
  * 处理元素指针按下事件
@@ -869,16 +1330,75 @@ export const PixiCanvas = () => {
           }
           return
         }
-
-        // 平移处理：更新画布视口
-        if (panRef.current) {
-          const last = panRef.current.lastPointer
-          const dx = event.global.x - last.x
-          const dy = event.global.y - last.y
-          panRef.current.lastPointer = { x: event.global.x, y: event.global.y }
-          panBy({ x: dx, y: dy })
+      } 
+      // 处理单选情况 
+      else if (selectedElements.length === 1) {
+        const element = selectedElements[0]
+        // 单选时，createShape 循环里已经画了虚线框，这里只负责画 ResizeHandles (控制点)
+        if (!dragRef.current?.moved) {
+          const handlesLayer = createResizeHandlesLayer(
+            element,
+            state.zoom,
+            resizeRef.current?.direction ?? null,
+            state.selectedIds,
+            handleResizeStart,
+            handleRotateStart
+          )
+          content.addChild(handlesLayer)
         }
-      })
+      }
+    }
+    if (rotateRef.current) {
+      const el = state.elements.find(e => e.id === rotateRef.current?.id)
+      if (el) {
+        // 创建新的 tooltip
+        const tooltip = createRotateTooltip(el, state.zoom)
+        
+        // 确保 Tooltip 在最上层
+        tooltip.zIndex = 100 
+        content.addChild(tooltip)
+        
+        // 更新引用以便销毁
+        rotateRef.current.tooltip = tooltip
+
+        // 1. 获取旋转中心计算所需的参数
+        const w2 = el.width / 2
+        const h2 = el.height / 2
+        
+        // 2. 【重要】将角度转换为弧度！Math.cos/sin 需要弧度
+        const rotationRad = toRad(el.rotation) 
+        const cos = Math.cos(rotationRad)
+        const sin = Math.sin(rotationRad)
+        
+        // 3. 计算元素的几何中心 (cx, cy)
+        // 依据：中心点 = 左上角(x,y) + 旋转后的半宽半高向量
+        const cx = el.x + w2 * cos - h2 * sin
+        const cy = el.y + w2 * sin + h2 * cos
+        
+        // 4. 设置 Tooltip 位置
+        // 显示在元素中心的正下方。
+        // 更精确做法：跟随元素底边。这里使用"中心点下方固定距离 + 缩放补偿"
+        // 计算元素在垂直方向上的投影半径（近似值，确保文字不遮挡元素）
+        const boundsRadius = Math.sqrt(w2 * w2 + h2 * h2)
+        const offset = boundsRadius + (20 / state.zoom)
+
+        tooltip.position.set(cx, cy + offset)
+      }
+    }
+
+
+  }, [
+    state,
+    state.elements,
+    state.selectedIds,
+    state.interactionMode,
+    state.zoom,
+    handleElementPointerDown,
+    handleResizeStart,
+    handleSelectionBoxPointerDown,
+    renderElements,
+    renderPage,
+  ])
 
       // 停止所有交互操作
       const stopInteractions = () => {
@@ -1011,3 +1531,4 @@ export const PixiCanvas = () => {
     </div>
   )
 }
+
