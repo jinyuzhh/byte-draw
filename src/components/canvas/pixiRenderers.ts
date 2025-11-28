@@ -613,7 +613,7 @@ export const createBoundsHandlesLayer = ({
 export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
   const container = new Container()
   // 将角度转换为度数，并归一化到 0-360
-  let degrees = Math.round(element.rotation) % 360
+  let degrees = Math.round(element.rotation * (180 / Math.PI))
   if (degrees < 0) degrees += 360
   
   const text = new Text({
@@ -637,9 +637,19 @@ export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
   container.addChild(bg)
   container.addChild(text)
   
+  // 设置位置：元素正下方
+  // 此时 container 还没有添加到 layer 中，假设它会被添加到 content 容器
+  // 计算元素中心的全局位置，或者直接利用 element 的坐标
+  // 为了简单，让它跟随元素底部中心，并保持水平（抵消元素旋转）
+  
+  container.position.set(
+    element.x + element.width / 2, 
+    element.y + element.height + 20 + (20/zoom)
+  )
+  
   // 抵消画布的缩放，让文字始终保持清晰大小
   // 同时抵消元素的旋转（如果它是作为子元素添加的话），但通常 Tooltip 是加在顶层的
-  // 这里假设它加在 content 层，位置是绝对坐标
+  // 这里我们假设它加在 content 层，位置是绝对坐标
   container.pivot.set(bg.width / 2, 0) // 居中显示
   container.zIndex = 100
 
