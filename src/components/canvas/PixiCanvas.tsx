@@ -16,7 +16,6 @@ import type { CanvasElement, GroupElement } from "../../types/canvas"
 import {
   MIN_ELEMENT_SIZE,
   SELECTION_COLOR,
-  SNAP_ANGLE,
   type ResizeDirection,
 } from "./pixiConstants"
 import {
@@ -31,7 +30,6 @@ import {
   createSelectionOutline,
   createShape,
   createSolidBoundsOutline,
-  createRotateTooltip
 } from "./pixiRenderers"
 import { RightClickMenu } from "./RightClickMenu"
 
@@ -602,6 +600,7 @@ export const PixiCanvas = () => {
       if (appRef.current && appRef.current.canvas) {
         appRef.current.canvas.addEventListener('contextmenu', preventContextMenu);
       }
+    })
 
       const handleGlobalWheelInternal = (event: WheelEvent) => {
         if (event.ctrlKey || event.metaKey) {
@@ -646,6 +645,7 @@ export const PixiCanvas = () => {
           selectionBox.endFill();
           return;
         }
+      }
 
         if (resizeRef.current) {
           const current = resizeRef.current
@@ -824,11 +824,13 @@ export const PixiCanvas = () => {
         panRef.current = null
       }
 
-      app.stage.on("pointerup", stopInteractions)
-      app.stage.on("pointerupoutside", stopInteractions)
-    }
-
-    setup()
+      // 设置容器大小变化观察器
+      const resizeObserver = new ResizeObserver(() => {
+        app.resize()
+        updateBackground()
+      })
+      resizeObserver.observe(wrapperRef.current)
+      resizeObserverRef.current = resizeObserver
 
     return () => {
       destroyed = true
