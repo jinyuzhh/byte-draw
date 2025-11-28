@@ -594,32 +594,6 @@ export const PixiCanvas = () => {
         }
       })
 
-      // if (rotateRef.current && contentRef.current) {
-      //   const el = state.elements.find(e => e.id === rotateRef.current?.id)
-      //   if (el) {
-      //     // 如果 tooltip 已存在，销毁旧的（为了简单，或者更新文字）
-      //     if (rotateRef.current.tooltip) {
-      //       rotateRef.current.tooltip.destroy()
-      //     }
-          
-      //     // 创建新的 tooltip 并添加
-      //     // 注意：这里需要传入 zoom 来抵消缩放
-      //     const tooltip = createRotateTooltip(el, state.zoom)
-      //     // 修正位置：放到元素中心下方
-      //     const w2 = el.width / 2
-      //     const h2 = el.height / 2
-      //     const cos = Math.cos(el.rotation)
-      //     const sin = Math.sin(el.rotation)
-      //     const cx = el.x + w2 * cos - h2 * sin
-      //     const cy = el.y + w2 * sin + h2 * cos
-          
-      //     // Tooltip 位置：中心点往下偏移一定距离 (例如 60px)
-      //     tooltip.position.set(cx, cy + 60)
-          
-      //     contentRef.current.addChild(tooltip)
-      //     rotateRef.current.tooltip = tooltip
-      //   }
-      // }
 
       // 停止所有交互操作
     const stopInteractions = () => {
@@ -985,8 +959,31 @@ export const PixiCanvas = () => {
         tooltip.zIndex = 100 
         content.addChild(tooltip)
         
-        // 更新引用以便销毁（虽然在 removeChildren 中会被自动销毁，但保持引用是个好习惯）
+        // 更新引用以便销毁
         rotateRef.current.tooltip = tooltip
+
+        // 1. 获取旋转中心计算所需的参数
+        const w2 = el.width / 2
+        const h2 = el.height / 2
+        
+        // 2. 【重要】将角度转换为弧度！Math.cos/sin 需要弧度
+        const rotationRad = toRad(el.rotation) 
+        const cos = Math.cos(rotationRad)
+        const sin = Math.sin(rotationRad)
+        
+        // 3. 计算元素的几何中心 (cx, cy)
+        // 依据：中心点 = 左上角(x,y) + 旋转后的半宽半高向量
+        const cx = el.x + w2 * cos - h2 * sin
+        const cy = el.y + w2 * sin + h2 * cos
+        
+        // 4. 设置 Tooltip 位置
+        // 显示在元素中心的正下方。
+        // 更精确做法：跟随元素底边。这里使用"中心点下方固定距离 + 缩放补偿"
+        // 计算元素在垂直方向上的投影半径（近似值，确保文字不遮挡元素）
+        const boundsRadius = Math.sqrt(w2 * w2 + h2 * h2)
+        const offset = boundsRadius + (20 / state.zoom)
+
+        tooltip.position.set(cx, cy + offset)
       }
     }
 
