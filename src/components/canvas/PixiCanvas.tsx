@@ -44,6 +44,7 @@ import {
   createResizeHandlesLayer,
   createSelectionOutline,
   createShape,
+  createSolidBoundsOutline,
 } from "./pixiRenderers"
 import { RightClickMenu } from "./RightClickMenu"
 
@@ -461,41 +462,51 @@ export const PixiCanvas = () => {
       state.interactionMode === "select" &&
       state.selectedIds.length > 0
     ) {
-      // 遍历当前选中的每一个元素 ID
-      state.selectedIds.forEach((id) => {
-        const element = state.elements.find((el) => el.id === id)
-        if (!element) return
+      // 获取所有选中的元素对象
+      const selectedElements = state.elements.filter((el) => 
+        state.selectedIds.includes(el.id)
+      )
 
+      // 处理多选情况（统一包围盒）
+      if (selectedElements.length > 1) {
+        // 计算整体包围盒
+        const bounds = getBoundingBox(selectedElements)
+        
+        if (bounds) {
+          // 2.1 绘制统一的外接框 (样式与单选一致)
+          // 多选包围盒通常不旋转，rotation 设为 0
+          const globalOutline = createSolidBoundsOutline({ ...bounds, rotation: 0 })
+          content.addChild(globalOutline)
 
-        // 构造该元素的 bounds 数据
-        const bounds = {
-          x: element.x,
-          y: element.y,
-          width: element.width,
-          height: element.height,
-          rotation: element.rotation,
+          // 2.2 绘制统一的控制点 (非拖动状态下)
+          if (!dragRef.current?.moved) {
+            const handlesLayer = createBoundsHandlesLayer({
+              bounds: { ...bounds, rotation: 0 },
+              zoom: state.zoom,
+              activeDirection: resizeRef.current?.direction ?? null,
+              isMultiSelection: false,
+              selectedIds: state.selectedIds, // 传入所有ID，以便 resize 时同时操作它们
+              handleResizeStart,
+            })
+            content.addChild(handlesLayer)
+          }
         }
-
-        // 绘制控制点 (仅在非拖动状态下显示，避免闪烁)
+      } 
+      // 处理单选情况 
+      else if (selectedElements.length === 1) {
+        const element = selectedElements[0]
+        // 单选时，createShape 循环里已经画了虚线框，这里只负责画 ResizeHandles (控制点)
         if (!dragRef.current?.moved) {
-          const handlesLayer = createBoundsHandlesLayer({
-            bounds,
-            zoom: state.zoom,
-            // 判断当前正在调整大小的元素是否是自己，如果是，则显示激活方向
-            activeDirection:
-              resizeRef.current?.ids.includes(id)
-                ? resizeRef.current?.direction ?? null
-                : null,
-            // 关键点1：强制设为 false，确保渲染所有 8 个控制点，而不是多选时的 4 个角
-            isMultiSelection: false, 
-            // 关键点2：传入 [id] 而非 state.selectedIds。
-            // 这样拖动某个元素的控制点时，只会改变该元素的大小，符合独立控制点的直觉。
-            selectedIds: [id], 
-            handleResizeStart,
-          })
+          const handlesLayer = createResizeHandlesLayer(
+            element,
+            state.zoom,
+            resizeRef.current?.direction ?? null,
+            state.selectedIds,
+            handleResizeStart
+          )
           content.addChild(handlesLayer)
         }
-      })
+      }
     }
   }, [
     state,
