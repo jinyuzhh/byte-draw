@@ -814,34 +814,6 @@ export const PixiCanvas = () => {
           performResize(current, dx, dy)
           return
         }
-        
-        if (rotateRef.current) {
-          const { centerX, centerY, startAngle, startRotation, id } = rotateRef.current
-          const local = event.getLocalPosition(content)
-          const currentMouseAngle = Math.atan2(local.y - centerY, local.x - centerX)
-          let deltaRad = currentMouseAngle - startAngle
-          let newRotationDeg = startRotation + toDeg(deltaRad)
-
-          if (event.shiftKey) {
-            newRotationDeg = Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE
-          }
-
-          const newRotationRad = toRad(newRotationDeg)
-          const newCos = Math.cos(newRotationRad)
-          const newSin = Math.sin(newRotationRad)
-          mutateElements(
-            (elements) => elements.map(el => {
-              if (el.id !== id) return el            
-              const elW2 = el.width / 2
-              const elH2 = el.height / 2
-              const newX = centerX - elW2 * newCos + elH2 * newSin
-              const newY = centerY - elW2 * newSin - elH2 * newCos
-              return { ...el, rotation: newRotationDeg, x: newX, y: newY }
-            }),
-            { recordHistory: false }
-          )
-          return 
-        }
 
         // 拖动处理：更新元素位置
         if (dragRef.current) {
