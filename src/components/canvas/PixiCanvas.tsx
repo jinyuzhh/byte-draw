@@ -28,6 +28,7 @@ import { useCanvas } from "../../store/CanvasProvider"
 import type { CanvasElement, GroupElement } from "../../types/canvas"
 import {
   MIN_ELEMENT_SIZE,
+  RESIZE_CURSORS,
   SELECTION_COLOR,
   type ResizeDirection,
 } from "./pixiConstants"
@@ -113,6 +114,9 @@ export const PixiCanvas = () => {
 
   const [renderPage, setRenderPage] = useState(0); // 用于触发页面渲染
   const [hasInitialized, setHasInitialized] = useState(false); // 用于判断是否已经初始化
+
+  // 交互光标状态：用于在拖动/调整大小时锁定光标
+  const [interactionCursor, setInteractionCursor] = useState<string | null>(null);
 
   // 右键菜单状态
   const [rightClickMenu, setRightClickMenu] = useState({
@@ -295,6 +299,8 @@ export const PixiCanvas = () => {
         historySnapshot: cloneElements(elements),
         moved: false,
       }
+      // 设置拖动光标，防止光标抖动
+      setInteractionCursor('move')
     }, [setSelection])
 
   /**
@@ -340,6 +346,8 @@ export const PixiCanvas = () => {
         historySnapshot: cloneElements(stateRef.current.elements),
         moved: false,
       }
+      // 设置调整大小光标，防止光标抖动
+      setInteractionCursor(RESIZE_CURSORS[direction])
     },
     []
   )
@@ -348,7 +356,9 @@ export const PixiCanvas = () => {
   const renderElements = useCallback((
     content: Container,
     elements: CanvasElement[],
-    currentState: typeof state
+    currentState: typeof state,
+    isDragging: boolean = false,
+    isResizing: boolean = false
   ) => {
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     // 启用子元素排序（用于控制柄层级）
@@ -359,7 +369,9 @@ export const PixiCanvas = () => {
     elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id)
       const node = await createShape(element, state.interactionMode, (event) =>
-        handleElementPointerDown(event, element.id)
+        handleElementPointerDown(event, element.id),
+        isDragging,
+        isResizing
       )
       node.zIndex = 1
       content.addChild(node)
@@ -423,11 +435,17 @@ export const PixiCanvas = () => {
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     content.sortableChildren = true
 
+    // 检查当前是否在拖动或调整大小
+    const isDragging = dragRef.current?.moved ?? false
+    const isResizing = resizeRef.current?.moved ?? false
+
     // 1. 渲染所有元素和单选框
     state.elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id)
       const node = await createShape(element, state.interactionMode, (event) =>
-        handleElementPointerDown(event, element.id)
+        handleElementPointerDown(event, element.id),
+        isDragging,
+        isResizing
       )
       node.zIndex = 1
       content.addChild(node)
@@ -934,6 +952,9 @@ export const PixiCanvas = () => {
         dragRef.current = null
         resizeRef.current = null
         panRef.current = null
+        
+        // 重置交互光标
+        setInteractionCursor(null)
       }
 
       app.stage.on("pointerup", stopInteractions)
@@ -958,7 +979,7 @@ export const PixiCanvas = () => {
         handleGlobalWheel = null
       }
     }
-  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection, renderPage])
+  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection, setInteractionCursor, renderPage])
 
   // 准备右键菜单项
   const menuItems = [
@@ -989,7 +1010,11 @@ export const PixiCanvas = () => {
   // 渲染画布容器和右键菜单
   return (
     <div className="relative h-full w-full">
-      <div ref={wrapperRef} className="h-full w-full rounded-[32px]" />
+      <div 
+        ref={wrapperRef} 
+        className="h-full w-full rounded-[32px]" 
+        style={{ cursor: interactionCursor || 'default' }}
+      />
       <RightClickMenu
         items={menuItems}
         x={rightClickMenu.x}
