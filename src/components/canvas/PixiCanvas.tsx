@@ -123,7 +123,7 @@ export const PixiCanvas = () => {
   }, [state])
 
   // --- 7. Callbacks: 交互逻辑 ---
-  
+
   const handleRotateStart = useCallback((event: FederatedPointerEvent, id: string) => {
     event.stopPropagation()
     const content = contentRef.current
@@ -148,7 +148,7 @@ export const PixiCanvas = () => {
       centerX,
       centerY,
       startAngle: startMouseAngle,
-      snapshot: cloneElements(stateRef.current.elements), 
+      snapshot: cloneElements(stateRef.current.elements),
       tooltip: null
     }
   }, [])
@@ -192,13 +192,13 @@ export const PixiCanvas = () => {
       const { selectedIds, elements } = stateRef.current
       const nativeEvent = event.originalEvent as unknown as { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } | undefined
       const additive = Boolean(nativeEvent?.shiftKey || nativeEvent?.metaKey || nativeEvent?.ctrlKey)
-      
+
       const selection = additive
         ? Array.from(new Set([...selectedIds, elementId]))
         : selectedIds.includes(elementId) ? selectedIds : [elementId]
-      
+
       setSelection(selection)
-      
+
       const content = contentRef.current
       if (!content) return
       const local = event.getLocalPosition(content)
@@ -208,7 +208,7 @@ export const PixiCanvas = () => {
           snapshot[el.id] = cloneElement(el)
         }
       })
-      
+
       dragRef.current = {
         ids: selection,
         startPointer: local,
@@ -277,30 +277,30 @@ export const PixiCanvas = () => {
 
       mutateElements(
         (elements) => elements.map((el) => {
-            if (!ids.includes(el.id)) return el
-            const startEl = startElements[el.id]
-            if (!startEl) return el
+          if (!ids.includes(el.id)) return el
+          const startEl = startElements[el.id]
+          if (!startEl) return el
 
-            const newX = newBounds.x + (startEl.x - startBounds.x) * scaleX
-            const newY = newBounds.y + (startEl.y - startBounds.y) * scaleY
-            const newWidth = Math.max(MIN_ELEMENT_SIZE, startEl.width * scaleX)
-            const newHeight = Math.max(MIN_ELEMENT_SIZE, startEl.height * scaleY)
+          const newX = newBounds.x + (startEl.x - startBounds.x) * scaleX
+          const newY = newBounds.y + (startEl.y - startBounds.y) * scaleY
+          const newWidth = Math.max(MIN_ELEMENT_SIZE, startEl.width * scaleX)
+          const newHeight = Math.max(MIN_ELEMENT_SIZE, startEl.height * scaleY)
 
-            if (el.type === 'group' && 'children' in el && Array.isArray(el.children)) {
-              const startGroup = startEl as typeof el;
-              if (startGroup.children) {
-                const scaledChildren = startGroup.children.map(child => ({
-                  ...child,
-                  x: child.x * scaleX,
-                  y: child.y * scaleY,
-                  width: Math.max(MIN_ELEMENT_SIZE, child.width * scaleX),
-                  height: Math.max(MIN_ELEMENT_SIZE, child.height * scaleY)
-                }));
-                return { ...el, x: newX, y: newY, width: newWidth, height: newHeight, children: scaledChildren };
-              }
+          if (el.type === 'group' && 'children' in el && Array.isArray(el.children)) {
+            const startGroup = startEl as typeof el;
+            if (startGroup.children) {
+              const scaledChildren = startGroup.children.map(child => ({
+                ...child,
+                x: child.x * scaleX,
+                y: child.y * scaleY,
+                width: Math.max(MIN_ELEMENT_SIZE, child.width * scaleX),
+                height: Math.max(MIN_ELEMENT_SIZE, child.height * scaleY)
+              }));
+              return { ...el, x: newX, y: newY, width: newWidth, height: newHeight, children: scaledChildren };
             }
-            return { ...el, x: newX, y: newY, width: newWidth, height: newHeight }
-          }) as CanvasElement[],
+          }
+          return { ...el, x: newX, y: newY, width: newWidth, height: newHeight }
+        }) as CanvasElement[],
         { recordHistory: false }
       )
     },
@@ -405,13 +405,13 @@ export const PixiCanvas = () => {
       const el = state.elements.find(e => e.id === rotateRef.current?.id)
       if (el) {
         const tooltip = createRotateTooltip(el, state.zoom)
-        tooltip.zIndex = 100 
+        tooltip.zIndex = 100
         content.addChild(tooltip)
         rotateRef.current.tooltip = tooltip
 
         const w2 = el.width / 2
         const h2 = el.height / 2
-        const rotationRad = toRad(el.rotation) 
+        const rotationRad = toRad(el.rotation)
         const cos = Math.cos(rotationRad)
         const sin = Math.sin(rotationRad)
         const cx = el.x + w2 * cos - h2 * sin
@@ -439,14 +439,23 @@ export const PixiCanvas = () => {
   // --- 10. Effect: 视图变换同步 ---
   useEffect(() => {
     const content = contentRef.current
+    const app = appRef.current
     const guides = guidesRef.current
-    if (!content) return
-    content.position.set(state.pan.x, state.pan.y)
-    content.scale.set(state.zoom)
-    
+    if (!content || !app) return
+
+    // 关键修正：内容的位置应该是pan的负值
+    // 这样当pan.x/pan.y增加时，内容会向左/向上移动
+    // 符合滚动条向下滚动时内容向下移动的直觉
+    content.position.set(-state.pan.x, -state.pan.y)
+    // 将缩放应用到整个画布视图而不是内容容器
+    // 结合设备像素比计算实际缩放值，确保在高DPI屏幕上显示正确
+    const effectiveZoom = state.zoom
+    app.stage.scale.set(effectiveZoom)
+
     if (guides) {
-      guides.position.set(state.pan.x, state.pan.y)
-      guides.scale.set(state.zoom)
+      guides.position.set(-state.pan.x, -state.pan.y)
+      // 保持辅助线与内容同步
+      guides.scale.set(1)
     }
   }, [state.pan, state.zoom])
 
@@ -520,7 +529,7 @@ export const PixiCanvas = () => {
       wrapperRef.current.appendChild(app.canvas)
       app.stage.eventMode = "static"
       app.stage.hitArea = app.screen
-      app.stage.sortableChildren = true 
+      app.stage.sortableChildren = true
 
       const background = new Graphics()
       background.alpha = 0
@@ -534,7 +543,7 @@ export const PixiCanvas = () => {
       app.stage.addChild(content)
 
       const guides = new Graphics()
-      guides.eventMode = "none" 
+      guides.eventMode = "none"
       guides.zIndex = 9999
       app.stage.addChild(guides)
       guidesRef.current = guides
@@ -551,6 +560,13 @@ export const PixiCanvas = () => {
       const resizeObserver = new ResizeObserver(() => {
         app.resize()
         updateBackground()
+        // 确保画布大小变化后，缩放比例仍然正确应用
+        if (contentRef.current && stateRef.current) {
+          const content = contentRef.current
+          // 重新应用平移和缩放
+          content.position.set(-stateRef.current.pan.x, -stateRef.current.pan.y)
+          app.stage.scale.set(stateRef.current.zoom)
+        }
       })
       resizeObserver.observe(wrapperRef.current)
       resizeObserverRef.current = resizeObserver
@@ -604,9 +620,13 @@ export const PixiCanvas = () => {
       }
 
       const handleGlobalWheelInternal = (event: WheelEvent) => {
-        if (event.ctrlKey || event.metaKey) {
+        // 当按下Ctrl/Meta键时，阻止浏览器默认缩放行为
+        if ((event.ctrlKey || event.metaKey)) {
+          // 首先阻止浏览器默认行为
           event.preventDefault();
           event.stopPropagation();
+
+          // 然后检查鼠标是否在画布内，如果是则执行自定义缩放
           const canvas = app.canvas;
           const rect = canvas.getBoundingClientRect();
           const isMouseInCanvas = (
@@ -621,6 +641,7 @@ export const PixiCanvas = () => {
             setZoom(newZoom);
           }
         }
+        // 否则，让事件正常传播到滚动容器的onScroll事件
       };
       // 更新全局变量引用，以便清理
       handleGlobalWheel = handleGlobalWheelInternal;
@@ -656,7 +677,7 @@ export const PixiCanvas = () => {
           performResize(current, dx, dy)
           return
         }
-        
+
         if (rotateRef.current) {
           const { centerX, centerY, startAngle, startRotation, id } = rotateRef.current
           const local = event.getLocalPosition(content)
@@ -673,7 +694,7 @@ export const PixiCanvas = () => {
           const newSin = Math.sin(newRotationRad)
           mutateElements(
             (elements) => elements.map(el => {
-              if (el.id !== id) return el            
+              if (el.id !== id) return el
               const elW2 = el.width / 2
               const elH2 = el.height / 2
               const newX = centerX - elW2 * newCos + elH2 * newSin
@@ -682,7 +703,7 @@ export const PixiCanvas = () => {
             }),
             { recordHistory: false }
           )
-          return 
+          return
         }
 
         if (dragRef.current) {
@@ -699,9 +720,9 @@ export const PixiCanvas = () => {
             dx,
             dy,
             current.snapshot,
-            5 / zoom 
+            5 / zoom
           );
-          
+
           currentGuidesRef.current = guides;
 
           if (guidesRef.current) {
@@ -713,7 +734,7 @@ export const PixiCanvas = () => {
               if (app) {
                 const pan = stateRef.current.pan;
                 const screen = app.screen;
-                const padding = 5000 / zoom; 
+                const padding = 5000 / zoom;
                 const minX = (-pan.x / zoom) - padding;
                 const maxX = ((screen.width - pan.x) / zoom) + padding;
                 const minY = (-pan.y / zoom) - padding;
@@ -759,9 +780,9 @@ export const PixiCanvas = () => {
 
       const stopInteractions = () => {
         if (rotateRef.current) {
-            mutateElements(
-            (elements) => elements, 
-            { 
+          mutateElements(
+            (elements) => elements,
+            {
               historySnapshot: rotateRef.current.snapshot
             }
           )
@@ -770,14 +791,14 @@ export const PixiCanvas = () => {
           }
           rotateRef.current = null
         }
-        
+
         if (isSelectedRef.current && selectionBoxRef.current && selectionStartRef.current) {
           const selectionBox = selectionBoxRef.current;
           const bounds = selectionBox.getBounds();
           const selectionRect = new Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
           const selectedElements = stateRef.current.elements.filter(elem => {
             const elemRect = new Rectangle(elem.x, elem.y, elem.width, elem.height);
-            return selectionRect.intersects(elemRect); 
+            return selectionRect.intersects(elemRect);
           });
           if (selectedElements.length > 0) {
             setSelection(selectedElements.map((el) => el.id));
@@ -869,9 +890,119 @@ export const PixiCanvas = () => {
     }
   ];
 
+  // --- 12. 滚动条相关逻辑 --- 
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const contentSizeRef = useRef({ width: 2000, height: 2000 }); // 默认内容大小
+
+  // 更新内容尺寸
+  const updateContentSize = useCallback(() => {
+    if (!contentSizeRef.current) return;
+
+    // 计算所有元素的边界框
+    const bounds = getBoundingBox(state.elements);
+    if (bounds) {
+      // 添加一些边距
+      const padding = 200;
+      contentSizeRef.current = {
+        width: Math.max(1000, bounds.width + padding * 2),
+        height: Math.max(1000, bounds.height + padding * 2)
+      };
+    } else {
+      // 如果没有元素，使用默认大小
+      contentSizeRef.current = { width: 2000, height: 2000 };
+    }
+  }, [state.elements]);
+
+  // 使用ref而不是state来跟踪滚动状态，避免不必要的重渲染
+  const isScrollingRef = useRef(false);
+
+  // 同步滚动条位置到画布平移 (修正方向)
+  const handleScroll = useCallback(() => {
+    if (!scrollContainerRef.current) return;
+    const scrollContainer = scrollContainerRef.current;
+
+    // 计算滚动位置对应的画布平移（取整以避免精度问题）
+    const scrollX = Math.round(scrollContainer.scrollLeft);
+    const scrollY = Math.round(scrollContainer.scrollTop);
+
+    // 设置标志防止循环更新
+    isScrollingRef.current = true;
+
+    // 只有当滚动位置与当前平移状态有显著差异时才更新
+    // 使用固定阈值提高同步精度，避免缩放相关的不精确性
+    const threshold = 1;
+    if (Math.abs(scrollX - Math.round(state.pan.x)) > threshold ||
+      Math.abs(scrollY - Math.round(state.pan.y)) > threshold) {
+      // 直接设置pan为滚动位置
+      panBy({ x: scrollX - state.pan.x, y: scrollY - state.pan.y });
+    }
+
+    // 使用requestAnimationFrame在下一帧重置标志，确保与浏览器渲染同步
+    requestAnimationFrame(() => {
+      isScrollingRef.current = false;
+    });
+  }, [state.pan, panBy]);
+
+  // 同步画布平移到滚动条位置
+  useEffect(() => {
+    // 只有在初始化完成且不是用户主动滚动时才同步
+    // 避免双向同步导致的循环更新
+    if (isInitialized && scrollContainerRef.current && !isScrollingRef.current) {
+      // 使用 requestAnimationFrame 来优化滚动性能
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current && !isScrollingRef.current) {
+          // 计算目标滚动位置（取整以匹配滚动条的整数像素）
+          const targetScrollLeft = Math.round(state.pan.x);
+          const targetScrollTop = Math.round(state.pan.y);
+
+          // 避免不必要的 DOM 操作，使用更大的阈值减少更新频率
+          const scrollContainer = scrollContainerRef.current;
+          if (Math.abs(scrollContainer.scrollLeft - targetScrollLeft) > 1) {
+            scrollContainer.scrollLeft = targetScrollLeft;
+          }
+          if (Math.abs(scrollContainer.scrollTop - targetScrollTop) > 1) {
+            scrollContainer.scrollTop = targetScrollTop;
+          }
+        }
+      });
+    }
+  }, [state.pan, isInitialized]);
+
+  // 当元素变化时更新内容尺寸 (使用防抖优化)
+  useEffect(() => {
+    // 使用 setTimeout 进行防抖，避免频繁更新
+    const timer = setTimeout(() => {
+      updateContentSize();
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [updateContentSize]);
+
+  // 当缩放变化时更新内容尺寸
+  useEffect(() => {
+    updateContentSize();
+  }, [state.zoom, updateContentSize]);
+
   return (
     <div className="relative h-full w-full">
-      <div ref={wrapperRef} className="h-full w-full rounded-[32px]" />
+      {/* 外层滚动容器 */}
+      <div
+        ref={scrollContainerRef}
+        className="h-full w-full overflow-auto"
+        onScroll={handleScroll}
+      >
+        {/* 内层内容容器，设置固定大小 */}
+        <div
+          ref={wrapperRef}
+          className="rounded-[32px]"
+          style={{
+            width: `${contentSizeRef.current.width}px`,
+            height: `${contentSizeRef.current.height}px`,
+            minWidth: '100%',
+            minHeight: '100%'
+          }}
+        />
+      </div>
       <RightClickMenu
         items={menuItems}
         x={rightClickMenu.x}
