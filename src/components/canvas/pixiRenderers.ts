@@ -37,7 +37,8 @@ export const createShape = async (
 ) => {
   const container = new Container()
 
-  container.position.set(element.x, element.y)
+  container.pivot.set(element.width / 2, element.height / 2)
+  container.position.set(element.x + element.width / 2, element.y + element.height / 2)
   container.angle = element.rotation
   container.alpha = element.opacity
 
@@ -245,7 +246,8 @@ export const createResizeHandlesLayer = (
   const handlesLayer = new Container()
   handlesLayer.sortableChildren = true
   handlesLayer.zIndex = 10
-  handlesLayer.position.set(element.x, element.y)
+  handlesLayer.pivot.set(element.width / 2, element.height / 2)
+  handlesLayer.position.set(element.x + element.width / 2, element.y + element.height / 2)
   handlesLayer.angle = element.rotation
 
   const handleSize = 7 / zoom 
@@ -386,7 +388,8 @@ export const createSolidBoundsOutline = (
   outline.stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 1 })
 
   // 设置位置
-  outline.position.set(bounds.x, bounds.y)
+  outline.pivot.set(bounds.width / 2, bounds.height / 2)
+  outline.position.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
   // 如果是多选大框通常不旋转，但为了通用性这里加上旋转判断
   outline.angle = bounds.rotation || 0
   outline.zIndex = 2
@@ -437,7 +440,8 @@ export const createSelectionOutline = (bounds: { x: number; y: number; width: nu
  outline.stroke({ width: 1.4, color: SELECTION_COLOR, alpha: 1 })
   
   // 设置位置和旋转
-  outline.position.set(bounds.x, bounds.y)
+  outline.pivot.set(bounds.width / 2, bounds.height / 2)
+  outline.position.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
   outline.angle = bounds.rotation
   outline.zIndex = 2
   
@@ -620,7 +624,7 @@ export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
     text: `${degrees}°`,
     style: new TextStyle({
       fontFamily: "Inter, sans-serif",
-      fontSize: 12 / zoom,
+      fontSize: 18 / zoom,
       fill: "white",
       fontWeight: "bold",
     }),

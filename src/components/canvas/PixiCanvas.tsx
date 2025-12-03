@@ -133,13 +133,8 @@ export const PixiCanvas = () => {
     if (!element) return
 
     const localPoint = event.getLocalPosition(content)
-    const rotationRad = toRad(element.rotation)
-    const w2 = element.width / 2
-    const h2 = element.height / 2
-    const cos = Math.cos(rotationRad)
-    const sin = Math.sin(rotationRad)
-    const centerX = element.x + w2 * cos - h2 * sin
-    const centerY = element.y + w2 * sin + h2 * cos
+    const centerX = element.x + element.width / 2
+    const centerY = element.y + element.height / 2
     const startMouseAngle = Math.atan2(localPoint.y - centerY, localPoint.x - centerX)
 
     rotateRef.current = {
@@ -409,15 +404,12 @@ export const PixiCanvas = () => {
         content.addChild(tooltip)
         rotateRef.current.tooltip = tooltip
 
-        const w2 = el.width / 2
-        const h2 = el.height / 2
-        const rotationRad = toRad(el.rotation) 
-        const cos = Math.cos(rotationRad)
-        const sin = Math.sin(rotationRad)
-        const cx = el.x + w2 * cos - h2 * sin
-        const cy = el.y + w2 * sin + h2 * cos
-        const boundsRadius = Math.sqrt(w2 * w2 + h2 * h2)
-        const offset = boundsRadius + (20 / state.zoom)
+        // 计算元素中心点（不随旋转变化）
+        const cx = el.x + el.width / 2
+        const cy = el.y + el.height / 2
+        // 计算元素对角线半径，确保tooltip在旋转时始终在元素下方
+        const boundsRadius = Math.sqrt((el.width / 2) ** 2 + (el.height / 2) ** 2)
+        const offset = boundsRadius + (10 / state.zoom)
 
         tooltip.position.set(cx, cy + offset)
       }
@@ -668,17 +660,10 @@ export const PixiCanvas = () => {
             newRotationDeg = Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE
           }
 
-          const newRotationRad = toRad(newRotationDeg)
-          const newCos = Math.cos(newRotationRad)
-          const newSin = Math.sin(newRotationRad)
           mutateElements(
             (elements) => elements.map(el => {
               if (el.id !== id) return el            
-              const elW2 = el.width / 2
-              const elH2 = el.height / 2
-              const newX = centerX - elW2 * newCos + elH2 * newSin
-              const newY = centerY - elW2 * newSin - elH2 * newCos
-              return { ...el, rotation: newRotationDeg, x: newX, y: newY }
+              return { ...el, rotation: newRotationDeg }
             }),
             { recordHistory: false }
           )

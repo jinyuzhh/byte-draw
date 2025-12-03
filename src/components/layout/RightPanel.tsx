@@ -55,6 +55,106 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
 )
 
 /**
+ * 旋转角度输入控件组件
+ * 
+ * @component RotationInput
+ * 
+ * @description 
+ * 专用于旋转角度的输入控件，允许用户自由输入（包括负数、空值等临时不合法值），
+ * 在失焦时统一校正为合法角度。支持上下箭头微调。
+ */
+const RotationInput = ({
+  value,
+  onChange,
+  step = 1,
+}: {
+  value: number
+  onChange: (value: number) => void
+  step?: number
+}) => {
+  const [inputValue, setInputValue] = React.useState<string>(value.toFixed(2))
+  
+  // 同步外部 value 变化到输入框（仅当输入框未聚焦时）
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  React.useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      // 保留两位小数
+      setInputValue(value.toFixed(2))
+    }
+  }, [value])
+  
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 允许任意输入，不做实时校验
+    setInputValue(e.target.value)
+  }
+  
+  const handleBlur = () => {
+    // 失焦时校正为合法角度
+    const parsed = parseFloat(inputValue)
+    if (Number.isNaN(parsed)) {
+      // 非法输入，恢复为当前值（保留两位小数）
+      setInputValue(value.toFixed(2))
+    } else {
+      // 合法输入，保留两位小数并更新值
+      const rounded = parseFloat(parsed.toFixed(2))
+      setInputValue(rounded.toFixed(2))
+      onChange(rounded)
+    }
+  }
+  
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      inputRef.current?.blur()
+    }
+  }
+  
+  const handleStep = (delta: number) => {
+    const parsed = parseFloat(inputValue)
+    const baseValue = Number.isNaN(parsed) ? value : parsed
+    const newValue = parseFloat((baseValue + delta).toFixed(2))
+    setInputValue(newValue.toFixed(2))
+    onChange(newValue)
+  }
+  
+  return (
+    <div className="relative flex items-center">
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="numeric"
+        value={inputValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        className="w-full rounded-lg border border-canvas-border bg-white px-2 py-1 pr-8 text-sm text-slate-700 focus:border-canvas-accent focus:outline-none"
+      />
+      <div className="absolute right-1 flex flex-col">
+        <button
+          type="button"
+          onClick={() => handleStep(step)}
+          className="h-3 w-5 flex items-center justify-center text-slate-400 hover:text-slate-600"
+          tabIndex={-1}
+        >
+          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 10 6">
+            <path d="M1 5L5 1L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => handleStep(-step)}
+          className="h-3 w-5 flex items-center justify-center text-slate-400 hover:text-slate-600"
+          tabIndex={-1}
+        >
+          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 10 6">
+            <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
  * 数字输入控件组件
  * 
  * @component NumberInput
@@ -808,7 +908,7 @@ export const RightPanel = () => {
               />
             </Field>
             <Field label="旋转">
-              <NumberInput
+              <RotationInput
                 value={selectedElement?.rotation || 0}
                 onChange={(value) => handleLayoutChange({rotation: value})}
               />
@@ -943,7 +1043,7 @@ export const RightPanel = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="旋转">
-                <NumberInput
+                <RotationInput
                   value={selectedElement.rotation}
                   onChange={value => handleSameGroupUpdate({rotation: value})}
                 />
@@ -1061,7 +1161,7 @@ export const RightPanel = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="旋转">
-                <NumberInput
+                <RotationInput
                   value={selectedElement.rotation}
                   onChange={value => handleSingleChange({rotation: value})}
                 />
@@ -1133,7 +1233,7 @@ export const RightPanel = () => {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="旋转">
-            <NumberInput
+            <RotationInput
               value={selectedElement.rotation}
               onChange={(value) => handleSingleChange({ rotation: value })}
             />
