@@ -16,6 +16,13 @@
 import { useState, type ChangeEvent, type ReactNode } from "react"
 import { useCanvas } from "../../store/CanvasProvider" 
 import type { ShapeVariant } from "../../types/canvas" 
+
+/**
+ * 图片参数常量
+ */
+const MAX_IMAGE_SIZE_MB = 10 // 最大图片大小 10MB
+const MAX_IMAGE_SIZE = MAX_IMAGE_SIZE_MB * 1024 * 1024 // 最大图片大小 10 * 1024 * 1024 Byte
+
 /**
  * 支持的基础图形类型配置
  * 
@@ -159,10 +166,75 @@ export const LeftPanel = () => {
     setShowPlaceholder(true) // 显示提示文本
   }
 
+  // 图片压缩方法
+  const compressImage = (dataURL: string, maxWidth: number, maxHeight: number): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = "anonymous"
+
+      img.onload = () => {
+        // 合理的尺寸
+        if (img.width <= maxWidth && img.height <= maxHeight) {
+          resolve(dataURL)
+          return
+        }
+
+        const canvas = document.createElement("canvas")
+        const ctx = canvas.getContext("2d")
+        if (!ctx) {
+          resolve(dataURL)
+          return
+        }
+
+        // 计算等比例缩放
+        let width = img.width
+        let height = img.height
+
+        if (width > maxWidth) {
+          height = (maxWidth / width) * height
+          width = maxWidth
+        }
+        
+        if (height > maxHeight) {
+          width = (maxHeight / height) * width
+          height = maxHeight
+        }
+        
+        canvas.width = width
+        canvas.height = height
+
+        // 绘制压缩后的图片
+        ctx.drawImage(img, 0, 0, width, height)
+        // 转换为JPEG格式（压缩率更高）
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85)
+        resolve(compressedDataUrl)
+      }
+
+      img.onerror = () => {
+        resolve(dataURL)
+      }
+      img.src = dataURL
+    })
+  }
+
   const handleUpload = (event: ChangeEvent<HTMLInputElement>) => {
     // 获取用户选择的第一个文件
     const file = event.target.files?.[0]
     if (!file) return
+
+    // 1. 类型检查
+    const allowedTypes = ["image/png", "image/jpeg", "image/jpg"]
+    if (!allowedTypes.includes(file.type)){
+      alert(`当前不支持 ${file.type} 类型的图片上传`)
+      event.target.value = ""
+      return
+    }
+    // 2. 大小检查
+    if (file.size > MAX_IMAGE_SIZE){
+      alert(`图片大小不能超过 ${MAX_IMAGE_SIZE_MB}MB\n请重新选择图片`)
+      event.target.value = ""
+      return
+    }
     
     // 创建 FileReader 对象用于读取文件
     const reader = new FileReader()
@@ -178,15 +250,23 @@ export const LeftPanel = () => {
       // 设置跨域属性，避免跨域图片加载问题
       image.crossOrigin = "anonymous"
       
-      // 图片加载完成后的回调函数
-      image.onload = () => {
-        // 设置图片最大宽度为 480px
-        const maxWidth = 480
-        // 计算缩放比例，确保图片不超过最大宽度
+      // 图片加载完成后的回调函数，搭配图片压缩使用
+      image.onload = async () => {
+        const MAX_PIXEL = 2000 // 最大像素限制
+
+        let findDataUrl = dataUrl
+        if (image.width > MAX_PIXEL || image.height > MAX_PIXEL) {
+          try {
+            findDataUrl = await compressImage(dataUrl, MAX_PIXEL, MAX_PIXEL)
+          } catch (error) {
+            alert("图片压缩失败，使用图片")
+          }
+        }
+
+        const maxWidth = 480 // 最大宽度限制
         const scale = Math.min(1, maxWidth / image.width)
-        
-        // 调用 addImage 方法将图片添加到画布，传入缩放后的尺寸
-        addImage(dataUrl, {
+
+        addImage(findDataUrl, {
           width: image.width * scale,
           height: image.height * scale,
         })
@@ -207,6 +287,7 @@ export const LeftPanel = () => {
     // 重置文件输入框的值，允许重复选择同一文件
     event.target.value = ""
   }
+
 
   return (
     // 左侧面板容器，固定宽度，垂直布局，带边框和背景
@@ -255,6 +336,9 @@ export const LeftPanel = () => {
         {/* 自定义文件上传标签，提供拖放样式的上传区域 */}
         <label className="flex h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 text-center text-sm text-slate-500 hover:border-canvas-accent hover:text-canvas-accent">
           <span>支持 png / jpg / jpeg</span>
+          <span className="text-xs text-slate-400">
+            图片大小限制 ≤ {MAX_IMAGE_SIZE_MB} MB
+          </span>
           {/* 隐藏的文件输入框，通过 label 触发 */}
           <input
             type="file"
