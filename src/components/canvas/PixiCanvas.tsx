@@ -12,7 +12,7 @@ import {
   Rectangle,
 } from "pixi.js"
 import { useCanvas } from "../../store/CanvasProvider"
-import type { CanvasElement, GroupElement } from "../../types/canvas"
+import type { CanvasBaseElement, CanvasElement, GroupElement } from "../../types/canvas"
 import {
   MIN_ELEMENT_SIZE,
   SELECTION_COLOR,
@@ -61,6 +61,22 @@ export const PixiCanvas = () => {
   const backgroundRef = useRef<Graphics | null>(null)
   const guidesRef = useRef<Graphics | null>(null)
   const currentGuidesRef = useRef<GuideLine[]>([])
+
+  const canvasBaseRef = useRef<Graphics | null>(null)
+  const [canvasBaseSize, setCanvasBaseSize] = useState({ width: 1200, height: 800 })
+
+  const defaultCanvasElement: CanvasBaseElement = {
+    id: '__canvas_base__',
+    type: 'canvas',
+    name: '画布',
+    x: 50,
+    y: 50,
+    width: canvasBaseSize.width,
+    height: canvasBaseSize.height,
+    rotation: 0,
+    fill: '#FFFFFF',
+    locked: true,
+  }
 
   const rotateRef = useRef<{
     id: string
@@ -111,11 +127,11 @@ export const PixiCanvas = () => {
 
   // --- 5. Effect: 初始化状态标记 ---
   useEffect(() => {
-    if (isInitialized && !hasInitialized && state.elements.length > 0) {
+    if (isInitialized && !hasInitialized) {
       setHasInitialized(true);
       setRenderPage(prev => prev + 1);
     }
-  }, [isInitialized, hasInitialized, state.elements.length])
+  }, [isInitialized, hasInitialized,])
 
   // --- 6. Effect: 同步 stateRef ---
   useEffect(() => {
@@ -125,6 +141,10 @@ export const PixiCanvas = () => {
   // --- 7. Callbacks: 交互逻辑 ---
 
   const handleRotateStart = useCallback((event: FederatedPointerEvent, id: string) => {
+    // 跳过画布
+    const elem = stateRef.current.elements.find(el => el.id === id)
+    if (elem?.type === 'canvas') return
+
     event.stopPropagation()
     const content = contentRef.current
     if (!content) return
@@ -150,6 +170,10 @@ export const PixiCanvas = () => {
 
   const handleResizeStart = useCallback(
     (event: FederatedPointerEvent, ids: string[], direction: ResizeDirection) => {
+      // 跳过画布
+      const elem = stateRef.current.elements.find(el => el.id === ids[0])
+      if (elem?.type === 'canvas') return
+
       event.stopPropagation()
       if (stateRef.current.interactionMode !== "select") return
       const content = contentRef.current
@@ -182,6 +206,10 @@ export const PixiCanvas = () => {
 
   const handleElementPointerDown = useCallback(
     (event: FederatedPointerEvent, elementId: string) => {
+      // 跳过画布元素
+      const elem = stateRef.current.elements.find(el => el.id === elementId)
+      if (elem?.type === 'canvas') return
+
       event.stopPropagation()
       if (stateRef.current.interactionMode !== "select") return
       const { selectedIds, elements } = stateRef.current
@@ -220,6 +248,16 @@ export const PixiCanvas = () => {
       const { selectedIds, elements } = stateRef.current
       const content = contentRef.current
       if (!content) return
+
+      const clickElement = stateRef.current.elements.find(el => {
+        const elRect = new Rectangle(el.x, el.y, el.width, el.height)
+        const local = event.getLocalPosition(content)
+        return elRect.contains(local.x, local.y)
+      })
+      if (clickElement?.type === 'canvas'){
+        return; // 跳过画布元素
+      }
+
       const local = event.getLocalPosition(content)
       const snapshot: Record<string, CanvasElement> = {}
       elements.forEach((el) => {
@@ -302,6 +340,131 @@ export const PixiCanvas = () => {
     [mutateElements]
   )
 
+  // 边界扩展
+   const handleExpandCanvas = useCallback((moveElementIds: string[]) => {
+    const elements = stateRef.current.elements
+    const canvasBase = elements.find(el => el.type === 'canvas') as CanvasBaseElement
+    if (!canvasBase) return
+
+    const margin = 100
+    const minCanvasWidth = 1200
+    const minCanvasHeight = 800
+    
+    // 1. 计算所有非画布元素的边界框
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    
+    let hasElements = false
+    elements.forEach(el => {
+      if (el.type === 'canvas') return
+      minX = Math.min(minX, el.x)
+      minY = Math.min(minY, el.y)
+      maxX = Math.max(maxX, el.x + el.width)
+      maxY = Math.max(maxY, el.y + el.height)
+      hasElements = true
+    })
+
+    if (!hasElements) return
+
+    // 2. 计算所需的安全边界
+    const safeMinX = minX - margin
+    const safeMinY = minY - margin
+    const safeMaxX = maxX + margin
+    const safeMaxY = maxY + margin
+
+    // 3. 当前画布边界
+    const currentRight = canvasBase.x + canvasBase.width
+    const currentBottom = canvasBase.y + canvasBase.height
+
+    let needsUpdate = false
+    const updates: Partial<CanvasBaseElement> = {}
+
+    // 4. 左侧检查（如果元素超出左侧，需要移动画布）
+    if (safeMinX < canvasBase.x) {
+      updates.x = safeMinX
+      updates.width = canvasBase.width + (canvasBase.x - safeMinX)
+      needsUpdate = true
+    }
+
+    // 5. 顶部检查（如果元素超出顶部，需要移动画布）
+    if (safeMinY < canvasBase.y) {
+      updates.y = safeMinY
+      updates.height = canvasBase.height + (canvasBase.y - safeMinY)
+      needsUpdate = true
+    }
+
+    // 6. 右侧检查（扩展或收缩）
+    if (safeMaxX > currentRight) {
+      // 需要向右扩展
+      const newWidth = Math.max(
+        safeMaxX - (updates.x || canvasBase.x),
+        minCanvasWidth
+      )
+      updates.width = newWidth
+      needsUpdate = true
+    } else if (safeMaxX < currentRight - margin * 2) {
+      // 可以向右收缩，但要留出足够的安全边距
+      const newWidth = Math.max(
+        safeMaxX - (updates.x || canvasBase.x) + margin,
+        minCanvasWidth
+      )
+      if (newWidth < canvasBase.width) {
+        updates.width = newWidth
+        needsUpdate = true
+      }
+    }
+
+    // 7. 底部检查（扩展或收缩）
+    if (safeMaxY > currentBottom) {
+      // 需要向下扩展
+      const newHeight = Math.max(
+        safeMaxY - (updates.y || canvasBase.y),
+        minCanvasHeight
+      )
+      updates.height = newHeight
+      needsUpdate = true
+    } else if (safeMaxY < currentBottom - margin * 2) {
+      // 可以向下收缩，但要留出足够的安全边距
+      const newHeight = Math.max(
+        safeMaxY - (updates.y || canvasBase.y) + margin,
+        minCanvasHeight
+      )
+      if (newHeight < canvasBase.height) {
+        updates.height = newHeight
+        needsUpdate = true
+      }
+    }
+
+    // 8. 应用更新
+    if (needsUpdate) {
+      const finalUpdates = {
+        ...updates,
+        // 确保最小尺寸
+        width: Math.max(updates.width || canvasBase.width, minCanvasWidth),
+        height: Math.max(updates.height || canvasBase.height, minCanvasHeight),
+        // 确保位置合理
+        x: Math.max(0, updates.x || canvasBase.x),
+        y: Math.max(0, updates.y || canvasBase.y),
+      }
+
+      // 只有实际有变化时才更新
+      if (
+        finalUpdates.width !== canvasBase.width ||
+        finalUpdates.height !== canvasBase.height ||
+        finalUpdates.x !== canvasBase.x ||
+        finalUpdates.y !== canvasBase.y
+      ) {
+        mutateElements(elements => 
+          elements.map(el => 
+            el.type === 'canvas' ? { ...el, ...finalUpdates } : el
+          )
+        )
+      }
+    }
+  }, [mutateElements])
+
   // --- 8. renderElements 定义 (关键修复点：必须在 useEffect 之前) ---
   const renderElements = useCallback((
     content: Container,
@@ -342,8 +505,30 @@ export const PixiCanvas = () => {
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     content.sortableChildren = true
 
-    // 1. 渲染元素
-    state.elements.forEach(async (element) => {
+    // 0. 首先渲染画布层
+    const canvasBaseElement = state.elements.find(el => el.type === 'canvas') as CanvasBaseElement
+    if (canvasBaseElement) {
+      const canvasBase = new Graphics()
+      canvasBase.beginFill( canvasBaseElement.fill === 'transparent' 
+        ? 0xFFFFFF 
+        : parseInt(canvasBaseElement.fill.slice(1), 16) )
+      canvasBase.drawRect(
+        canvasBaseElement.x,
+        canvasBaseElement.y,
+        canvasBaseElement.width,
+        canvasBaseElement.height
+      )
+      canvasBase.endFill()
+      canvasBase.alpha = 1
+      canvasBase.zIndex = -1
+      canvasBase.eventMode = 'none'
+      content.addChild(canvasBase)
+      canvasBaseRef.current = canvasBase
+    }
+
+    // 1. 渲染元素 (注意过滤画布元素)
+    const baseElements = state.elements.filter(el => el.type!== 'canvas')
+    baseElements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id)
       const node = await createShape(element, state.interactionMode, (event) =>
         handleElementPointerDown(event, element.id)
@@ -426,6 +611,7 @@ export const PixiCanvas = () => {
     handleSelectionBoxPointerDown,
     // renderElements, // 可以不依赖这个，因为逻辑已经内联了
     renderPage,
+    isInitialized,
   ])
 
   // --- 10. Effect: 视图变换同步 ---
@@ -545,10 +731,15 @@ export const PixiCanvas = () => {
       backgroundRef.current = background
       registerApp(app)
 
+
+      if (stateRef.current.elements.length === 0) {
+        mutateElements(elements => [...elements, defaultCanvasElement])
+      }
+
       if (stateRef.current.elements.length > 0) {
         renderElements(content, stateRef.current.elements, stateRef.current)
       }
-
+      
       const resizeObserver = new ResizeObserver(() => {
         app.resize()
         updateBackground()
@@ -584,7 +775,7 @@ export const PixiCanvas = () => {
             const selectionBox = new Graphics();
             selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
             selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
-            selectionBox.zIndex = 100;
+            selectionBox.zIndex = 150;
             content.addChild(selectionBox);
             selectionBoxRef.current = selectionBox;
           }
@@ -651,6 +842,11 @@ export const PixiCanvas = () => {
           const width = Math.abs(start.x - localPos.x);
           const height = Math.abs(start.y - localPos.y);
           const selectionBox = selectionBoxRef.current;
+
+          if (!selectionBox.parent) {
+            content.addChild(selectionBox);
+          }
+
           selectionBox.clear();
           selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
           selectionBox.beginFill(SELECTION_COLOR, 0.1);
@@ -780,16 +976,35 @@ export const PixiCanvas = () => {
         if (isSelectedRef.current && selectionBoxRef.current && selectionStartRef.current) {
           const selectionBox = selectionBoxRef.current;
           const bounds = selectionBox.getBounds();
-          const selectionRect = new Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
+          const selectionRect = new Rectangle(bounds.x, bounds.y, Math.max(1, bounds.width), Math.max(1, bounds.height));
           const selectedElements = stateRef.current.elements.filter(elem => {
+            if (elem.type === 'canvas') {
+              return false;
+            }
             const elemRect = new Rectangle(elem.x, elem.y, elem.width, elem.height);
-            return selectionRect.intersects(elemRect);
+            const hasIntersections = selectionRect.intersects(elemRect);
+            if (!hasIntersections) {
+              const points = [
+                {x: selectionRect.x, y: selectionRect.y}, // 左上角
+                {x: selectionRect.x + selectionRect.width, y: selectionRect.y}, // 右上角
+                {x: selectionRect.x + selectionRect.width, y: selectionRect.y + selectionRect.height}, // 右下角
+                {x: selectionRect.x, y: selectionRect.y + selectionRect.height}, // 左下角
+              ];
+              return points.some(point => 
+                point.x >= elemRect.x &&
+                point.x <= elemRect.x + elemRect.width &&
+                point.y >= elemRect.y &&
+                point.y <= elemRect.y + elemRect.height
+              );
+            }
+            return hasIntersections;
           });
           if (selectedElements.length > 0) {
             setSelection(selectedElements.map((el) => el.id));
           } else {
             clearSelection();
           }
+
           selectionBox.destroy();
           selectionBoxRef.current = null;
         }
@@ -803,6 +1018,7 @@ export const PixiCanvas = () => {
         }
 
         if (dragRef.current?.moved) {
+          handleExpandCanvas(dragRef.current.ids)
           currentGuidesRef.current = [];
           if (guidesRef.current) {
             guidesRef.current.clear();
@@ -816,6 +1032,7 @@ export const PixiCanvas = () => {
         }
 
         if (resizeRef.current?.moved) {
+          handleExpandCanvas(resizeRef.current.ids)
           mutateElements(
             (elements) => elements,
             {

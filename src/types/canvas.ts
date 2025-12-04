@@ -308,11 +308,32 @@ export interface GroupElement extends ElementBase {
 
 /**
  * 画布元素联合类型
+ */
+export interface CanvasBaseElement {
+  id: string
+  type: 'canvas'
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  fill: string // 画布颜色
+  locked?: boolean // 画布是否锁定
+}
+
+/**
+ * 画布元素联合类型
  * 包含所有可能的画布元素类型
  * 
- * @typedef {ShapeElement|TextElement|ImageElement|GroupElement} CanvasElement
+ * @typedef {ShapeElement|TextElement|ImageElement|GroupElement|CanvasBaseElement} CanvasElement
  */
-export type CanvasElement = ShapeElement | TextElement | ImageElement | GroupElement
+export type CanvasElement = 
+    ShapeElement 
+  | TextElement 
+  | ImageElement 
+  | GroupElement 
+  | CanvasBaseElement // 画布元素类型
 
 /**
  * 画布状态接口
