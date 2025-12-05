@@ -31,7 +31,8 @@ import {
   createSelectionOutline,
   createShape,
   createSolidBoundsOutline,
-  createRotateTooltip
+  createRotateTooltip,
+  createArtboard
 } from "./pixiRenderers"
 import { RightClickMenu } from "./RightClickMenu"
 
@@ -342,6 +343,12 @@ export const PixiCanvas = () => {
     content.removeChildren().forEach((child) => child.destroy({ children: true }))
     content.sortableChildren = true
 
+    // 0. 渲染画板（如果存在）
+    if (state.artboard && state.artboard.visible) {
+      const artboardGraphics = createArtboard(state.artboard, state.zoom)
+      content.addChild(artboardGraphics)
+    }
+
     // 1. 渲染元素
     state.elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id)
@@ -420,6 +427,7 @@ export const PixiCanvas = () => {
     state.selectedIds,
     state.interactionMode,
     state.zoom,
+    state.artboard,
     handleElementPointerDown,
     handleResizeStart,
     handleRotateStart,

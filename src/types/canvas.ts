@@ -307,6 +307,40 @@ export interface GroupElement extends ElementBase {
 }
 
 /**
+ * 画板接口
+ * 定义画布中的画板区域属性
+ * 
+ * @interface Artboard
+ * 
+ * @property {number} x - 画板在画布上的X坐标（左上角）
+ * @property {number} y - 画板在画布上的Y坐标（左上角）
+ * @property {number} width - 画板的宽度（像素）
+ * @property {number} height - 画板的高度（像素）
+ * @property {string} backgroundColor - 画板的背景颜色（CSS颜色值）
+ * @property {boolean} visible - 画板是否可见
+ * 
+ * @example
+ * ```typescript
+ * const artboard: Artboard = {
+ *   x: 100,
+ *   y: 100,
+ *   width: 800,
+ *   height: 600,
+ *   backgroundColor: "#ffffff",
+ *   visible: true
+ * };
+ * ```
+ */
+export interface Artboard {
+  x: number
+  y: number
+  width: number
+  height: number
+  backgroundColor: string
+  visible: boolean
+}
+
+/**
  * 画布元素联合类型
  * 包含所有可能的画布元素类型
  * 
@@ -359,6 +393,7 @@ export interface CanvasState {
   interactionMode: InteractionMode
   history: CanvasElement[][]
   redoStack: CanvasElement[][]
+  artboard: Artboard | null
 }
 
 /**
@@ -506,4 +541,23 @@ export interface CanvasContextValue {
    * 6. 记录历史以便撤销
    */
   ungroupElements: () => void
+
+  /**
+   * 设置画板
+   * 
+   * @function setArtboard
+   * @param {Artboard | null} artboard - 画板配置或 null（隐藏画板）
+   * 
+   * @description
+   * 设置画布的画板区域，画板定义了导出时的裁剪区域
+   */
+  setArtboard: (artboard: Artboard | null) => void
+
+  /**
+   * 更新画板背景颜色
+   * 
+   * @function updateArtboardColor
+   * @param {string} color - 画板背景颜色（CSS颜色值）
+   */
+  updateArtboardColor: (color: string) => void
 }
