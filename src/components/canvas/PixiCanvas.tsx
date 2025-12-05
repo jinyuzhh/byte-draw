@@ -759,7 +759,7 @@ export const PixiCanvas = () => {
           const dx = event.global.x - last.x
           const dy = event.global.y - last.y
           panRef.current.lastPointer = { x: event.global.x, y: event.global.y }
-          panBy({ x: dx, y: dy })
+          panBy({ x: -dx, y: -dy })
         }
       })
 
