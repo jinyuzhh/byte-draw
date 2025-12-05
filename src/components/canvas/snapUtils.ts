@@ -231,3 +231,133 @@ export const calculateSnap = (
     guides: uniqueGuides
   };
 };
+
+// 调整大小时的吸附边界类型
+type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+interface ResizeSnapResult {
+  snappedBounds: { x: number; y: number; width: number; height: number };
+  guides: GuideLine[];
+}
+
+// 根据调整方向获取需要吸附的边
+const getActiveEdges = (direction: ResizeEdge): { horizontal: ('top' | 'bottom')[]; vertical: ('left' | 'right')[] } => {
+  const horizontal: ('top' | 'bottom')[] = [];
+  const vertical: ('left' | 'right')[] = [];
+  
+  if (direction.includes('n')) horizontal.push('top');
+  if (direction.includes('s')) horizontal.push('bottom');
+  if (direction.includes('w')) vertical.push('left');
+  if (direction.includes('e')) vertical.push('right');
+  
+  return { horizontal, vertical };
+};
+
+// 计算调整大小时的吸附
+export const calculateResizeSnap = (
+  resizingElements: CanvasElement[],
+  allElements: CanvasElement[],
+  newBounds: { x: number; y: number; width: number; height: number },
+  direction: ResizeEdge,
+  threshold: number = 5
+): ResizeSnapResult => {
+  const resizingIds = new Set(resizingElements.map(el => el.id));
+  const otherElements = allElements.filter(el => !resizingIds.has(el.id));
+
+  if (otherElements.length === 0) {
+    return { snappedBounds: newBounds, guides: [] };
+  }
+
+  // 收集所有静态元素的吸附线
+  const staticLines: SnapLine[] = [];
+  otherElements.forEach(el => {
+    staticLines.push(...getSnapLines(el));
+  });
+
+  const activeEdges = getActiveEdges(direction);
+  const snappedBounds = { ...newBounds };
+  const guides: GuideLine[] = [];
+
+  // 处理垂直方向的吸附（左右边）
+  activeEdges.vertical.forEach(edge => {
+    const edgeValue = edge === 'left' ? newBounds.x : newBounds.x + newBounds.width;
+    
+    for (const line of staticLines) {
+      if (line.type === 'vertical') {
+        const dist = Math.abs(edgeValue - line.value);
+        if (dist <= threshold) {
+          if (edge === 'left') {
+            const deltaX = line.value - newBounds.x;
+            snappedBounds.x = line.value;
+            snappedBounds.width = newBounds.width - deltaX;
+          } else {
+            snappedBounds.width = line.value - snappedBounds.x;
+          }
+          
+          // 添加辅助线
+          const startY = Math.min(line.start, newBounds.y);
+          const endY = Math.max(line.end, newBounds.y + newBounds.height);
+          guides.push({
+            type: 'vertical',
+            coor: line.value,
+            x: line.value,
+            y: startY,
+            length: endY - startY,
+            start: startY
+          });
+          break; // 找到第一个吸附线就停止
+        }
+      }
+    }
+  });
+
+  // 处理水平方向的吸附（上下边）
+  activeEdges.horizontal.forEach(edge => {
+    const edgeValue = edge === 'top' ? newBounds.y : newBounds.y + newBounds.height;
+    
+    for (const line of staticLines) {
+      if (line.type === 'horizontal') {
+        const dist = Math.abs(edgeValue - line.value);
+        if (dist <= threshold) {
+          if (edge === 'top') {
+            const deltaY = line.value - newBounds.y;
+            snappedBounds.y = line.value;
+            snappedBounds.height = newBounds.height - deltaY;
+          } else {
+            snappedBounds.height = line.value - snappedBounds.y;
+          }
+          
+          // 添加辅助线
+          const startX = Math.min(line.start, snappedBounds.x);
+          const endX = Math.max(line.end, snappedBounds.x + snappedBounds.width);
+          guides.push({
+            type: 'horizontal',
+            coor: line.value,
+            y: line.value,
+            x: startX,
+            length: endX - startX,
+            start: startX
+          });
+          break; // 找到第一个吸附线就停止
+        }
+      }
+    }
+  });
+
+  // 去重辅助线
+  const uniqueGuides: GuideLine[] = [];
+  const seen = new Set<string>();
+  
+  guides.forEach(g => {
+    const key = `${g.type}-${g.coor}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueGuides.push(g);
+    }
+  });
+
+  return {
+    snappedBounds,
+    guides: uniqueGuides
+  };
+};

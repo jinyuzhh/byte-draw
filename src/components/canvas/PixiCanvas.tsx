@@ -24,7 +24,7 @@ import {
   cloneElements,
   getBoundingBox,
 } from "./pixiUtils"
-import { calculateSnap, type GuideLine } from "./snapUtils"
+import { calculateSnap, calculateResizeSnap, type GuideLine } from "./snapUtils"
 import {
   createBoundsHandlesLayer,
   createResizeHandlesLayer,
@@ -247,10 +247,11 @@ export const PixiCanvas = () => {
         startBounds: { x: number; y: number; width: number; height: number }
       },
       dx: number,
-      dy: number
+      dy: number,
+      enableSnap: boolean = false
     ) => {
       const { direction, startElements, startBounds, ids } = info
-      const newBounds = { ...startBounds }
+      let newBounds = { ...startBounds }
 
       if (direction.includes("e")) newBounds.width = Math.max(MIN_ELEMENT_SIZE, startBounds.width + dx)
       if (direction.includes("s")) newBounds.height = Math.max(MIN_ELEMENT_SIZE, startBounds.height + dy)
@@ -265,6 +266,53 @@ export const PixiCanvas = () => {
         const delta = startBounds.height - updatedHeight
         newBounds.height = updatedHeight
         newBounds.y = startBounds.y + delta
+      }
+
+      // 如果启用吸附，计算吸附后的边界和辅助线
+      let guides: GuideLine[] = [];
+      if (enableSnap) {
+        const resizingElements = stateRef.current.elements.filter(el => ids.includes(el.id));
+        const zoom = stateRef.current.zoom;
+        const snapResult = calculateResizeSnap(
+          resizingElements,
+          stateRef.current.elements,
+          newBounds,
+          direction as 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw',
+          5 / zoom
+        );
+        newBounds = snapResult.snappedBounds;
+        guides = snapResult.guides;
+        currentGuidesRef.current = guides;
+
+        // 绘制辅助线
+        if (guidesRef.current) {
+          const g = guidesRef.current;
+          g.clear();
+          if (guides.length > 0) {
+            const lineWidth = Math.max(1, 1 / zoom);
+            const app = appRef.current;
+            if (app) {
+              const pan = stateRef.current.pan;
+              const screen = app.screen;
+              const padding = 5000 / zoom;
+              const minX = (-pan.x / zoom) - padding;
+              const maxX = ((screen.width - pan.x) / zoom) + padding;
+              const minY = (-pan.y / zoom) - padding;
+              const maxY = ((screen.height - pan.y) / zoom) + padding;
+
+              guides.forEach(guide => {
+                if (guide.type === 'horizontal') {
+                  g.moveTo(minX, guide.coor);
+                  g.lineTo(maxX, guide.coor);
+                } else {
+                  g.moveTo(guide.coor, minY);
+                  g.lineTo(guide.coor, maxY);
+                }
+              });
+              g.stroke({ width: lineWidth, color: 0x947eec, alpha: 1 });
+            }
+          }
+        }
       }
 
       const scaleX = startBounds.width > 0 ? newBounds.width / startBounds.width : 1
@@ -666,7 +714,7 @@ export const PixiCanvas = () => {
           const dx = local.x - current.startPointer.x
           const dy = local.y - current.startPointer.y
           current.moved = true
-          performResize(current, dx, dy)
+          performResize(current, dx, dy, true)
           return
         }
 
@@ -816,6 +864,10 @@ export const PixiCanvas = () => {
         }
 
         if (resizeRef.current?.moved) {
+          currentGuidesRef.current = [];
+          if (guidesRef.current) {
+            guidesRef.current.clear();
+          }
           mutateElements(
             (elements) => elements,
             {
