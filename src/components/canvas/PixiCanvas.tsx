@@ -557,6 +557,7 @@ export const PixiCanvas = () => {
       const app = new Application()
       await app.init({
         antialias: true,
+        autoDensity: true,
         backgroundAlpha: 0,
         resolution: window.devicePixelRatio || 1,
         resizeTo: wrapperRef.current,
