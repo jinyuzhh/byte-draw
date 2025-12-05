@@ -493,21 +493,20 @@ export const PixiCanvas = () => {
       background.hitArea = app.screen
     }
 
-    const setup = async () => {
-      if (!wrapperRef.current) return
-      const app = new Application()
-      await app.init({
-        antialias: true,
-        backgroundAlpha: 0,
-        resolution: window.devicePixelRatio || 1,
-        resizeTo: wrapperRef.current,
-      })
-      if (destroyed) {
-        app.destroy()
-        return
-      }
-
-      wrapperRef.current.appendChild(app.canvas)
+    const setup = async () => {
+      if (!wrapperRef.current) return
+      const app = new Application()
+      await app.init({
+        antialias: true,
+        backgroundAlpha: 0,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
+        resizeTo: wrapperRef.current,
+      })
+      if (destroyed) {
+        app.destroy()
+        return
+      }      wrapperRef.current.appendChild(app.canvas)
       app.stage.eventMode = "static"
       app.stage.hitArea = app.screen
       app.stage.sortableChildren = true
