@@ -1,287 +1,301 @@
-/**
- * @fileoverview Pixi 画布渲染组件
- * @file /src/components/canvas/PixiCanvas.tsx
- */
-
-import { useEffect, useRef, useCallback, useState } from "react"
+import { useEffect, useRef, useCallback, useState } from "react";
 import {
-  Application,
-  Container,
-  Graphics,
-  FederatedPointerEvent,
-  Rectangle,
-} from "pixi.js"
-import { useCanvas } from "../../store/CanvasProvider"
-import type { CanvasElement, GroupElement } from "../../types/canvas"
+  Application,
+  Container,
+  Graphics,
+  FederatedPointerEvent,
+  Rectangle,
+} from "pixi.js";
+import { useCanvas } from "../../store/CanvasProvider";
+import type { CanvasElement, GroupElement } from "../../types/canvas";
 import {
-  MIN_ELEMENT_SIZE,
-  SELECTION_COLOR,
-  SNAP_ANGLE,
-  type ResizeDirection,
-} from "./pixiConstants"
+  MIN_ELEMENT_SIZE,
+  SELECTION_COLOR,
+  SNAP_ANGLE,
+  type ResizeDirection,
+} from "./pixiConstants";
+import { cloneElement, cloneElements, getBoundingBox } from "./pixiUtils";
 import {
-  cloneElement,
-  cloneElements,
-  getBoundingBox,
-} from "./pixiUtils"
-import { calculateSnap, calculateResizeSnap, type GuideLine } from "./snapUtils"
+  calculateSnap,
+  calculateResizeSnap,
+  type GuideLine,
+} from "./snapUtils";
 import {
-  createBoundsHandlesLayer,
-  createResizeHandlesLayer,
-  createSelectionOutline,
-  createShape,
-  createSolidBoundsOutline,
-  createRotateTooltip
-} from "./pixiRenderers"
-import { RightClickMenu } from "./RightClickMenu"
+  createBoundsHandlesLayer,
+  createResizeHandlesLayer,
+  createSelectionOutline,
+  createShape,
+  createSolidBoundsOutline,
+  createRotateTooltip,
+} from "./pixiRenderers";
+import { RightClickMenu } from "./RightClickMenu";
 
 export const PixiCanvas = () => {
-  // --- 1. 全局变量声明 ---
-  let handleGlobalWheel: ((event: WheelEvent) => void) | null = null;
-  let preventContextMenu: ((e: Event) => void) | null = null;
+  // --- 1. 全局变量声明 ---
+  let handleGlobalWheel: ((event: WheelEvent) => void) | null = null;
+  let preventContextMenu: ((e: Event) => void) | null = null; // --- 2. Hooks 和 状态获取 ---
 
-  // --- 2. Hooks 和 状态获取 ---
-  const {
-    state,
-    isInitialized,
-    setSelection,
-    clearSelection,
-    mutateElements,
-    panBy,
-    registerApp,
-    setZoom,
-    groupElements,
-    ungroupElements,
-  } = useCanvas()
+  const {
+    state,
+    isInitialized,
+    setSelection,
+    clearSelection,
+    mutateElements,
+    panBy,
+    registerApp,
+    setZoom,
+    groupElements,
+    ungroupElements,
+  } = useCanvas(); // --- 3. Refs 定义 ---
 
-  // --- 3. Refs 定义 ---
-  const wrapperRef = useRef<HTMLDivElement | null>(null)
-  const appRef = useRef<Application | null>(null)
-  const contentRef = useRef<Container | null>(null)
-  const backgroundRef = useRef<Graphics | null>(null)
-  const guidesRef = useRef<Graphics | null>(null)
-  const currentGuidesRef = useRef<GuideLine[]>([])
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const appRef = useRef<Application | null>(null);
+  const contentRef = useRef<Container | null>(null);
+  const backgroundRef = useRef<Graphics | null>(null);
+  const guidesRef = useRef<Graphics | null>(null);
+  const currentGuidesRef = useRef<GuideLine[]>([]);
 
-  const rotateRef = useRef<{
-    id: string
-    startRotation: number
-    centerX: number
-    centerY: number
-    startAngle: number
-    snapshot: CanvasElement[]
-    tooltip: Container | null
-  } | null>(null)
+  const rotateRef = useRef<{
+    id: string;
+    startRotation: number;
+    centerX: number;
+    centerY: number;
+    startAngle: number;
+    snapshot: CanvasElement[];
+    tooltip: Container | null;
+  } | null>(null);
 
-  const dragRef = useRef<{
-    ids: string[]
-    startPointer: { x: number; y: number }
-    snapshot: Record<string, CanvasElement>
-    historySnapshot: CanvasElement[]
-    moved: boolean
-  } | null>(null)
+  const dragRef = useRef<{
+    ids: string[];
+    startPointer: { x: number; y: number };
+    snapshot: Record<string, CanvasElement>;
+    historySnapshot: CanvasElement[];
+    moved: boolean;
+  } | null>(null);
 
-  const resizeRef = useRef<{
-    ids: string[]
-    direction: ResizeDirection
-    startPointer: { x: number; y: number }
-    startElements: Record<string, CanvasElement>
-    startBounds: { x: number; y: number; width: number; height: number }
-    historySnapshot: CanvasElement[]
-    moved: boolean
-  } | null>(null)
+  const resizeRef = useRef<{
+    ids: string[];
+    direction: ResizeDirection;
+    startPointer: { x: number; y: number };
+    startElements: Record<string, CanvasElement>;
+    startBounds: { x: number; y: number; width: number; height: number };
+    historySnapshot: CanvasElement[];
+    moved: boolean;
+  } | null>(null); // Pan 拖拽状态：记录起始指针位置和起始滚动位置
 
-  // Pan 拖拽状态：记录起始指针位置和起始滚动位置
-  const panRef = useRef<{
-    startPointer: { x: number; y: number }
-    startScroll: { x: number; y: number }
-  } | null>(null)
-  const stateRef = useRef(state)
-  const resizeObserverRef = useRef<ResizeObserver | null>(null)
-  const selectionBoxRef = useRef<Graphics | null>(null)
-  const isSelectedRef = useRef(false);
-  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const panRef = useRef<{
+    startPointer: { x: number; y: number };
+    startScroll: { x: number; y: number };
+  } | null>(null);
+  const stateRef = useRef(state);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const selectionBoxRef = useRef<Graphics | null>(null);
+  const isSelectedRef = useRef(false);
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const [renderPage, setRenderPage] = useState(0);
-  const [hasInitialized, setHasInitialized] = useState(false);
-  const [rightClickMenu, setRightClickMenu] = useState({
-    isVisible: false,
-    x: 0,
-    y: 0,
-  })
+  const [renderPage, setRenderPage] = useState(0);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [rightClickMenu, setRightClickMenu] = useState({
+    isVisible: false,
+    x: 0,
+    y: 0,
+  }); // --- 4. 辅助函数 ---
 
-  // --- 4. 辅助函数 ---
-  const toRad = (deg: number) => deg * (Math.PI / 180);
-  const toDeg = (rad: number) => rad * (180 / Math.PI);
+  const toRad = (deg: number) => deg * (Math.PI / 180);
+  const toDeg = (rad: number) => rad * (180 / Math.PI); // --- 5. Effect: 初始化状态标记 ---
 
-  // --- 5. Effect: 初始化状态标记 ---
-  useEffect(() => {
-    if (isInitialized && !hasInitialized && state.elements.length > 0) {
-      setHasInitialized(true);
-      setRenderPage(prev => prev + 1);
-    }
-  }, [isInitialized, hasInitialized, state.elements.length])
+  useEffect(() => {
+    if (isInitialized && !hasInitialized && state.elements.length > 0) {
+      setHasInitialized(true);
+      setRenderPage((prev) => prev + 1);
+    }
+  }, [isInitialized, hasInitialized, state.elements.length]); // --- 6. Effect: 同步 stateRef ---
 
-  // --- 6. Effect: 同步 stateRef ---
-  useEffect(() => {
-    stateRef.current = state
-  }, [state])
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]); // --- 7. Callbacks: 交互逻辑 ---
 
-  // --- 7. Callbacks: 交互逻辑 ---
+  const handleRotateStart = useCallback(
+    (event: FederatedPointerEvent, id: string) => {
+      event.stopPropagation();
+      const content = contentRef.current;
+      if (!content) return;
 
-  const handleRotateStart = useCallback((event: FederatedPointerEvent, id: string) => {
-    event.stopPropagation()
-    const content = contentRef.current
-    if (!content) return
+      const element = stateRef.current.elements.find((el) => el.id === id);
+      if (!element) return;
 
-    const element = stateRef.current.elements.find(el => el.id === id)
-    if (!element) return
+      const localPoint = event.getLocalPosition(content);
+      const centerX = element.x + element.width / 2;
+      const centerY = element.y + element.height / 2;
+      const startMouseAngle = Math.atan2(
+        localPoint.y - centerY,
+        localPoint.x - centerX
+      );
 
-    const localPoint = event.getLocalPosition(content)
-    const centerX = element.x + element.width / 2
-    const centerY = element.y + element.height / 2
-    const startMouseAngle = Math.atan2(localPoint.y - centerY, localPoint.x - centerX)
+      rotateRef.current = {
+        id,
+        startRotation: element.rotation,
+        centerX,
+        centerY,
+        startAngle: startMouseAngle,
+        snapshot: cloneElements(stateRef.current.elements),
+        tooltip: null,
+      };
+    },
+    []
+  );
 
-    rotateRef.current = {
-      id,
-      startRotation: element.rotation,
-      centerX,
-      centerY,
-      startAngle: startMouseAngle,
-      snapshot: cloneElements(stateRef.current.elements),
-      tooltip: null
-    }
-  }, [])
+  const handleResizeStart = useCallback(
+    (
+      event: FederatedPointerEvent,
+      ids: string[],
+      direction: ResizeDirection
+    ) => {
+      event.stopPropagation();
+      if (stateRef.current.interactionMode !== "select") return;
+      const content = contentRef.current;
+      if (!content) return;
 
-  const handleResizeStart = useCallback(
-    (event: FederatedPointerEvent, ids: string[], direction: ResizeDirection) => {
-      event.stopPropagation()
-      if (stateRef.current.interactionMode !== "select") return
-      const content = contentRef.current
-      if (!content) return
+      const elements = stateRef.current.elements.filter((el) =>
+        ids.includes(el.id)
+      );
+      if (elements.length === 0) return;
 
-      const elements = stateRef.current.elements.filter(el => ids.includes(el.id))
-      if (elements.length === 0) return
+      const startElements: Record<string, CanvasElement> = {};
+      elements.forEach((el) => {
+        startElements[el.id] = cloneElement(el);
+      });
 
-      const startElements: Record<string, CanvasElement> = {}
-      elements.forEach(el => {
-        startElements[el.id] = cloneElement(el)
-      })
+      const bounds = getBoundingBox(elements);
+      if (!bounds) return;
 
-      const bounds = getBoundingBox(elements)
-      if (!bounds) return
+      const local = event.getLocalPosition(content);
+      resizeRef.current = {
+        ids,
+        direction,
+        startPointer: local,
+        startElements,
+        startBounds: bounds,
+        historySnapshot: cloneElements(stateRef.current.elements),
+        moved: false,
+      };
+    },
+    []
+  );
 
-      const local = event.getLocalPosition(content)
-      resizeRef.current = {
-        ids,
-        direction,
-        startPointer: local,
-        startElements,
-        startBounds: bounds,
-        historySnapshot: cloneElements(stateRef.current.elements),
-        moved: false,
-      }
-    },
-    []
-  )
+  const handleElementPointerDown = useCallback(
+    (event: FederatedPointerEvent, elementId: string) => {
+      event.stopPropagation();
+      if (stateRef.current.interactionMode !== "select") return;
+      const { selectedIds, elements } = stateRef.current;
+      const nativeEvent = event.originalEvent as unknown as
+        | { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }
+        | undefined;
+      const additive = Boolean(
+        nativeEvent?.shiftKey || nativeEvent?.metaKey || nativeEvent?.ctrlKey
+      );
 
-  const handleElementPointerDown = useCallback(
-    (event: FederatedPointerEvent, elementId: string) => {
-      event.stopPropagation()
-      if (stateRef.current.interactionMode !== "select") return
-      const { selectedIds, elements } = stateRef.current
-      const nativeEvent = event.originalEvent as unknown as { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } | undefined
-      const additive = Boolean(nativeEvent?.shiftKey || nativeEvent?.metaKey || nativeEvent?.ctrlKey)
+      const selection = additive
+        ? Array.from(new Set([...selectedIds, elementId]))
+        : selectedIds.includes(elementId)
+        ? selectedIds
+        : [elementId];
 
-      const selection = additive
-        ? Array.from(new Set([...selectedIds, elementId]))
-        : selectedIds.includes(elementId) ? selectedIds : [elementId]
+      setSelection(selection);
 
-      setSelection(selection)
+      const content = contentRef.current;
+      if (!content) return;
+      const local = event.getLocalPosition(content);
+      const snapshot: Record<string, CanvasElement> = {};
+      elements.forEach((el) => {
+        if (selection.includes(el.id)) {
+          snapshot[el.id] = cloneElement(el);
+        }
+      });
 
-      const content = contentRef.current
-      if (!content) return
-      const local = event.getLocalPosition(content)
-      const snapshot: Record<string, CanvasElement> = {}
-      elements.forEach((el) => {
-        if (selection.includes(el.id)) {
-          snapshot[el.id] = cloneElement(el)
-        }
-      })
+      dragRef.current = {
+        ids: selection,
+        startPointer: local,
+        snapshot,
+        historySnapshot: cloneElements(elements),
+        moved: false,
+      };
+    },
+    [setSelection]
+  );
 
-      dragRef.current = {
-        ids: selection,
-        startPointer: local,
-        snapshot,
-        historySnapshot: cloneElements(elements),
-        moved: false,
-      }
-    }, [setSelection])
-
-  const handleSelectionBoxPointerDown = useCallback(
-    (event: FederatedPointerEvent) => {
-      event.stopPropagation()
-      if (stateRef.current.interactionMode !== "select") return
-      const { selectedIds, elements } = stateRef.current
-      const content = contentRef.current
-      if (!content) return
-      const local = event.getLocalPosition(content)
-      const snapshot: Record<string, CanvasElement> = {}
-      elements.forEach((el) => {
-        if (selectedIds.includes(el.id)) {
-          snapshot[el.id] = cloneElement(el)
-        }
-      })
-      dragRef.current = {
-        ids: selectedIds,
-        startPointer: local,
-        snapshot,
-        historySnapshot: cloneElements(elements),
-        moved: false,
-      }
-    },
-    []
-  )
+  const handleSelectionBoxPointerDown = useCallback(
+    (event: FederatedPointerEvent) => {
+      event.stopPropagation();
+      if (stateRef.current.interactionMode !== "select") return;
+      const { selectedIds, elements } = stateRef.current;
+      const content = contentRef.current;
+      if (!content) return;
+      const local = event.getLocalPosition(content);
+      const snapshot: Record<string, CanvasElement> = {};
+      elements.forEach((el) => {
+        if (selectedIds.includes(el.id)) {
+          snapshot[el.id] = cloneElement(el);
+        }
+      });
+      dragRef.current = {
+        ids: selectedIds,
+        startPointer: local,
+        snapshot,
+        historySnapshot: cloneElements(elements),
+        moved: false,
+      };
+    },
+    []
+  );
 
   const performResize = useCallback(
     (
       info: {
-        ids: string[]
-        direction: ResizeDirection
-        startElements: Record<string, CanvasElement>
-        startBounds: { x: number; y: number; width: number; height: number }
+        ids: string[];
+        direction: ResizeDirection;
+        startElements: Record<string, CanvasElement>;
+        startBounds: { x: number; y: number; width: number; height: number };
       },
       dx: number,
       dy: number,
       enableSnap: boolean = false
     ) => {
-      const { direction, startElements, startBounds, ids } = info
-      let newBounds = { ...startBounds }
+      const { direction, startElements, startBounds, ids } = info;
+      let newBounds = { ...startBounds };
 
-      if (direction.includes("e")) newBounds.width = Math.max(MIN_ELEMENT_SIZE, startBounds.width + dx)
-      if (direction.includes("s")) newBounds.height = Math.max(MIN_ELEMENT_SIZE, startBounds.height + dy)
-      if (direction.includes("w")) {
-        const updatedWidth = Math.max(MIN_ELEMENT_SIZE, startBounds.width - dx)
-        const delta = startBounds.width - updatedWidth
-        newBounds.width = updatedWidth
-        newBounds.x = startBounds.x + delta
-      }
-      if (direction.includes("n")) {
-        const updatedHeight = Math.max(MIN_ELEMENT_SIZE, startBounds.height - dy)
-        const delta = startBounds.height - updatedHeight
-        newBounds.height = updatedHeight
-        newBounds.y = startBounds.y + delta
-      }
+      if (direction.includes("e"))
+        newBounds.width = Math.max(MIN_ELEMENT_SIZE, startBounds.width + dx);
+      if (direction.includes("s"))
+        newBounds.height = Math.max(MIN_ELEMENT_SIZE, startBounds.height + dy);
+      if (direction.includes("w")) {
+        const updatedWidth = Math.max(MIN_ELEMENT_SIZE, startBounds.width - dx);
+        const delta = startBounds.width - updatedWidth;
+        newBounds.width = updatedWidth;
+        newBounds.x = startBounds.x + delta;
+      }
+      if (direction.includes("n")) {
+        const updatedHeight = Math.max(
+          MIN_ELEMENT_SIZE,
+          startBounds.height - dy
+        );
+        const delta = startBounds.height - updatedHeight;
+        newBounds.height = updatedHeight;
+        newBounds.y = startBounds.y + delta;
+      }
 
       // 如果启用吸附，计算吸附后的边界和辅助线
       let guides: GuideLine[] = [];
       if (enableSnap) {
-        const resizingElements = stateRef.current.elements.filter(el => ids.includes(el.id));
+        const resizingElements = stateRef.current.elements.filter((el) =>
+          ids.includes(el.id)
+        );
         const zoom = stateRef.current.zoom;
         const snapResult = calculateResizeSnap(
           resizingElements,
           stateRef.current.elements,
           newBounds,
-          direction as 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw',
+          direction as "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw",
           5 / zoom
         );
         newBounds = snapResult.snappedBounds;
@@ -299,13 +313,13 @@ export const PixiCanvas = () => {
               const pan = stateRef.current.pan;
               const screen = app.screen;
               const padding = 5000 / zoom;
-              const minX = (-pan.x / zoom) - padding;
-              const maxX = ((screen.width - pan.x) / zoom) + padding;
-              const minY = (-pan.y / zoom) - padding;
-              const maxY = ((screen.height - pan.y) / zoom) + padding;
+              const minX = -pan.x / zoom - padding;
+              const maxX = (screen.width - pan.x) / zoom + padding;
+              const minY = -pan.y / zoom - padding;
+              const maxY = (screen.height - pan.y) / zoom + padding;
 
-              guides.forEach(guide => {
-                if (guide.type === 'horizontal') {
+              guides.forEach((guide) => {
+                if (guide.type === "horizontal") {
                   g.moveTo(minX, guide.coor);
                   g.lineTo(maxX, guide.coor);
                 } else {
@@ -319,770 +333,818 @@ export const PixiCanvas = () => {
         }
       }
 
-      const scaleX = startBounds.width > 0 ? newBounds.width / startBounds.width : 1
-      const scaleY = startBounds.height > 0 ? newBounds.height / startBounds.height : 1
+      const scaleX =
+        startBounds.width > 0 ? newBounds.width / startBounds.width : 1;
+      const scaleY =
+        startBounds.height > 0 ? newBounds.height / startBounds.height : 1;
 
-      mutateElements(
-        (elements) => elements.map((el) => {
-          if (!ids.includes(el.id)) return el
-          const startEl = startElements[el.id]
-          if (!startEl) return el
+      mutateElements(
+        (elements) =>
+          elements.map((el) => {
+            if (!ids.includes(el.id)) return el;
+            const startEl = startElements[el.id];
+            if (!startEl) return el;
 
-          const newX = newBounds.x + (startEl.x - startBounds.x) * scaleX
-          const newY = newBounds.y + (startEl.y - startBounds.y) * scaleY
-          const newWidth = Math.max(MIN_ELEMENT_SIZE, startEl.width * scaleX)
-          const newHeight = Math.max(MIN_ELEMENT_SIZE, startEl.height * scaleY)
+            const newX = newBounds.x + (startEl.x - startBounds.x) * scaleX;
+            const newY = newBounds.y + (startEl.y - startBounds.y) * scaleY;
+            const newWidth = Math.max(MIN_ELEMENT_SIZE, startEl.width * scaleX);
+            const newHeight = Math.max(
+              MIN_ELEMENT_SIZE,
+              startEl.height * scaleY
+            );
 
-          if (el.type === 'group' && 'children' in el && Array.isArray(el.children)) {
-            const startGroup = startEl as typeof el;
-            if (startGroup.children) {
-              const scaledChildren = startGroup.children.map(child => ({
-                ...child,
-                x: child.x * scaleX,
-                y: child.y * scaleY,
-                width: Math.max(MIN_ELEMENT_SIZE, child.width * scaleX),
-                height: Math.max(MIN_ELEMENT_SIZE, child.height * scaleY)
-              }));
-              return { ...el, x: newX, y: newY, width: newWidth, height: newHeight, children: scaledChildren };
-            }
-          }
-          return { ...el, x: newX, y: newY, width: newWidth, height: newHeight }
-        }) as CanvasElement[],
-        { recordHistory: false }
-      )
-    },
-    [mutateElements]
-  )
+            if (
+              el.type === "group" &&
+              "children" in el &&
+              Array.isArray(el.children)
+            ) {
+              const startGroup = startEl as typeof el;
+              if (startGroup.children) {
+                const scaledChildren = startGroup.children.map((child) => ({
+                  ...child,
+                  x: child.x * scaleX,
+                  y: child.y * scaleY,
+                  width: Math.max(MIN_ELEMENT_SIZE, child.width * scaleX),
+                  height: Math.max(MIN_ELEMENT_SIZE, child.height * scaleY),
+                }));
+                return {
+                  ...el,
+                  x: newX,
+                  y: newY,
+                  width: newWidth,
+                  height: newHeight,
+                  children: scaledChildren,
+                };
+              }
+            }
+            return {
+              ...el,
+              x: newX,
+              y: newY,
+              width: newWidth,
+              height: newHeight,
+            };
+          }) as CanvasElement[],
+        { recordHistory: false }
+      );
+    },
+    [mutateElements]
+  ); // --- 8. renderElements 定义 (关键修复点：必须在 useEffect 之前) ---
 
-  // --- 8. renderElements 定义 (关键修复点：必须在 useEffect 之前) ---
-  const renderElements = useCallback((
-    content: Container,
-    elements: CanvasElement[],
-    currentState: typeof state
-  ) => {
-    content.removeChildren().forEach((child) => child.destroy({ children: true }))
-    content.sortableChildren = true
+  const renderElements = useCallback(
+    (
+      content: Container,
+      elements: CanvasElement[],
+      currentState: typeof state
+    ) => {
+      content
+        .removeChildren()
+        .forEach((child) => child.destroy({ children: true }));
+      content.sortableChildren = true;
 
-    elements.forEach(async (element) => {
-      const selected = state.selectedIds.includes(element.id)
-      const node = await createShape(element, state.interactionMode, (event) =>
-        handleElementPointerDown(event, element.id)
-      )
-      node.zIndex = 1
-      content.addChild(node)
+      elements.forEach(async (element) => {
+        const selected = state.selectedIds.includes(element.id);
+        const node = await createShape(
+          element,
+          state.interactionMode,
+          (event) => handleElementPointerDown(event, element.id)
+        );
+        node.zIndex = 1;
+        content.addChild(node);
 
-      if (selected && currentState.selectedIds.length === 1 && currentState.interactionMode === "select") {
-        const handlesLayer = createResizeHandlesLayer(
-          element,
-          currentState.zoom,
-          resizeRef.current?.direction ?? null,
-          state.selectedIds,
-          handleResizeStart,
-          handleRotateStart
-        )
-        content.addChild(handlesLayer)
-      }
-    })
-  }, [handleElementPointerDown, handleResizeStart, handleRotateStart, state.interactionMode, state.selectedIds])
+        if (
+          selected &&
+          currentState.selectedIds.length === 1 &&
+          currentState.interactionMode === "select"
+        ) {
+          const handlesLayer = createResizeHandlesLayer(
+            element,
+            currentState.zoom,
+            resizeRef.current?.direction ?? null,
+            state.selectedIds,
+            handleResizeStart,
+            handleRotateStart
+          );
+          content.addChild(handlesLayer);
+        }
+      });
+    },
+    [
+      handleElementPointerDown,
+      handleResizeStart,
+      handleRotateStart,
+      state.interactionMode,
+      state.selectedIds,
+    ]
+  ); // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
 
-  // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
-  useEffect(() => {
-    const content = contentRef.current
-    const app = appRef.current
-    if (!content || !app) return
+  useEffect(() => {
+    const content = contentRef.current;
+    const app = appRef.current;
+    if (!content || !app) return;
 
-    content.removeChildren().forEach((child) => child.destroy({ children: true }))
-    content.sortableChildren = true
+    content
+      .removeChildren()
+      .forEach((child) => child.destroy({ children: true }));
+    content.sortableChildren = true; // 1. 渲染元素
 
-    // 1. 渲染元素
-    state.elements.forEach(async (element) => {
-      const selected = state.selectedIds.includes(element.id)
-      const node = await createShape(element, state.interactionMode, (event) =>
-        handleElementPointerDown(event, element.id)
-      )
-      node.zIndex = 1
-      content.addChild(node)
+    state.elements.forEach(async (element) => {
+      const selected = state.selectedIds.includes(element.id);
+      const node = await createShape(element, state.interactionMode, (event) =>
+        handleElementPointerDown(event, element.id)
+      );
+      node.zIndex = 1;
+      content.addChild(node);
 
-      if (selected) {
-        const outline = createSelectionOutline(element)
-        content.addChild(outline)
-      }
-    })
+      if (selected) {
+        const outline = createSelectionOutline(element);
+        content.addChild(outline);
+      }
+    }); // 2. 渲染控制层
 
-    // 2. 渲染控制层
-    if (state.interactionMode === "select" && state.selectedIds.length > 0) {
-      const selectedElements = state.elements.filter((el) => state.selectedIds.includes(el.id))
+    if (state.interactionMode === "select" && state.selectedIds.length > 0) {
+      const selectedElements = state.elements.filter((el) =>
+        state.selectedIds.includes(el.id)
+      );
 
-      if (selectedElements.length > 1) {
-        const bounds = getBoundingBox(selectedElements)
-        if (bounds) {
-          const globalOutline = createSolidBoundsOutline({ ...bounds, rotation: 0 })
-          content.addChild(globalOutline)
+      if (selectedElements.length > 1) {
+        const bounds = getBoundingBox(selectedElements);
+        if (bounds) {
+          const globalOutline = createSolidBoundsOutline({
+            ...bounds,
+            rotation: 0,
+          });
+          content.addChild(globalOutline);
 
-          if (!dragRef.current?.moved) {
-            const handlesLayer = createBoundsHandlesLayer({
-              bounds: { ...bounds, rotation: 0 },
-              zoom: state.zoom,
-              activeDirection: resizeRef.current?.direction ?? null,
-              isMultiSelection: false,
-              selectedIds: state.selectedIds,
-              handleResizeStart,
-            })
-            content.addChild(handlesLayer)
-          }
-        }
-      } else if (selectedElements.length === 1) {
-        const element = selectedElements[0]
-        if (!dragRef.current?.moved) {
-          const handlesLayer = createResizeHandlesLayer(
-            element,
-            state.zoom,
-            resizeRef.current?.direction ?? null,
-            state.selectedIds,
-            handleResizeStart,
-            handleRotateStart
-          )
-          content.addChild(handlesLayer)
-        }
-      }
-    }
+          if (!dragRef.current?.moved) {
+            const handlesLayer = createBoundsHandlesLayer({
+              bounds: { ...bounds, rotation: 0 },
+              zoom: state.zoom,
+              activeDirection: resizeRef.current?.direction ?? null,
+              isMultiSelection: false,
+              selectedIds: state.selectedIds,
+              handleResizeStart,
+            });
+            content.addChild(handlesLayer);
+          }
+        }
+      } else if (selectedElements.length === 1) {
+        const element = selectedElements[0];
+        if (!dragRef.current?.moved) {
+          const handlesLayer = createResizeHandlesLayer(
+            element,
+            state.zoom,
+            resizeRef.current?.direction ?? null,
+            state.selectedIds,
+            handleResizeStart,
+            handleRotateStart
+          );
+          content.addChild(handlesLayer);
+        }
+      }
+    } // 3. 渲染旋转提示
 
-    // 3. 渲染旋转提示
-    if (rotateRef.current) {
-      const el = state.elements.find(e => e.id === rotateRef.current?.id)
-      if (el) {
-        const tooltip = createRotateTooltip(el, state.zoom)
-        tooltip.zIndex = 100
-        content.addChild(tooltip)
-        rotateRef.current.tooltip = tooltip
+    if (rotateRef.current) {
+      const el = state.elements.find((e) => e.id === rotateRef.current?.id);
+      if (el) {
+        const tooltip = createRotateTooltip(el, state.zoom);
+        tooltip.zIndex = 100;
+        content.addChild(tooltip);
+        rotateRef.current.tooltip = tooltip; // 计算元素中心点（不随旋转变化）
 
-        // 计算元素中心点（不随旋转变化）
-        const cx = el.x + el.width / 2
-        const cy = el.y + el.height / 2
-        // 计算元素对角线半径，确保tooltip在旋转时始终在元素下方
-        const boundsRadius = Math.sqrt((el.width / 2) ** 2 + (el.height / 2) ** 2)
-        const offset = boundsRadius + (10 / state.zoom)
+        const cx = el.x + el.width / 2;
+        const cy = el.y + el.height / 2; // 计算元素对角线半径，确保tooltip在旋转时始终在元素下方
+        const boundsRadius = Math.sqrt(
+          (el.width / 2) ** 2 + (el.height / 2) ** 2
+        );
+        const offset = boundsRadius + 10 / state.zoom;
 
-        tooltip.position.set(cx, cy + offset)
-      }
-    }
-  }, [
-    state,
-    state.elements,
-    state.selectedIds,
-    state.interactionMode,
-    state.zoom,
-    handleElementPointerDown,
-    handleResizeStart,
-    handleRotateStart,
-    handleSelectionBoxPointerDown,
-    // renderElements, // 可以不依赖这个，因为逻辑已经内联了
-    renderPage,
-  ])
+        tooltip.position.set(cx, cy + offset);
+      }
+    }
+  }, [
+    state,
+    state.elements,
+    state.selectedIds,
+    state.interactionMode,
+    state.zoom,
+    handleElementPointerDown,
+    handleResizeStart,
+    handleRotateStart,
+    handleSelectionBoxPointerDown, // renderElements, // 可以不依赖这个，因为逻辑已经内联了
+    renderPage,
+  ]); // --- 10. Effect: 缩放同步（pan 由 onScroll 驱动，不在这里处理） ---
 
-  // --- 10. Effect: 缩放同步（pan 由 onScroll 驱动，不在这里处理） ---
-  useEffect(() => {
-    const app = appRef.current
-    if (!app) return
-    // 只处理缩放
-    app.stage.scale.set(state.zoom)
-  }, [state.zoom])
+  useEffect(() => {
+    const app = appRef.current;
+    if (!app) return; // 只处理缩放
+    app.stage.scale.set(state.zoom);
+  }, [state.zoom]); // --- 11. Effect: 光标样式 ---
 
-  // --- 11. Effect: 光标样式 ---
-  useEffect(() => {
-    const background = backgroundRef.current
-    if (!background) return
-    background.cursor = state.interactionMode === "pan" ? "grab" : "default"
-  }, [state.interactionMode])
+  useEffect(() => {
+    const background = backgroundRef.current;
+    if (!background) return;
+    background.cursor = state.interactionMode === "pan" ? "grab" : "default";
+  }, [state.interactionMode]); // --- 12. Effect: 键盘快捷键 ---
 
-  // --- 12. Effect: 键盘快捷键 ---
-  const isGroupSelected = state.selectedIds.length === 1 &&
-    state.elements.find(el => el.id === state.selectedIds[0] && el.type === 'group') as GroupElement;
+  const isGroupSelected =
+    state.selectedIds.length === 1 &&
+    (state.elements.find(
+      (el) => el.id === state.selectedIds[0] && el.type === "group"
+    ) as GroupElement);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-      // 打组快捷键: Ctrl+G
-      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && !event.shiftKey) {
-        event.preventDefault();
-        if (state.selectedIds.length >= 2) {
-          groupElements();
-        }
-      }
-      // 解组快捷键: Ctrl+Shift+G
-      if (isCtrlOrCmd && event.key.toLowerCase() === 'g' && event.shiftKey) {
-        event.preventDefault();
-        if (isGroupSelected) {
-          ungroupElements();
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      if (appRef.current && appRef.current.canvas && preventContextMenu) {
-        appRef.current.canvas.removeEventListener('contextmenu', preventContextMenu);
-        preventContextMenu = null;
-      }
-    };
-  }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements])
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isCtrlOrCmd = event.ctrlKey || event.metaKey; // 打组快捷键: Ctrl+G
+      if (isCtrlOrCmd && event.key.toLowerCase() === "g" && !event.shiftKey) {
+        event.preventDefault();
+        if (state.selectedIds.length >= 2) {
+          groupElements();
+        }
+      } // 解组快捷键: Ctrl+Shift+G
+      if (isCtrlOrCmd && event.key.toLowerCase() === "g" && event.shiftKey) {
+        event.preventDefault();
+        if (isGroupSelected) {
+          ungroupElements();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (appRef.current && appRef.current.canvas && preventContextMenu) {
+        appRef.current.canvas.removeEventListener(
+          "contextmenu",
+          preventContextMenu
+        );
+        preventContextMenu = null;
+      }
+    };
+  }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements]); // --- 13. Effect: 初始化 PixiJS (SETUP) ---
 
-  // --- 13. Effect: 初始化 PixiJS (SETUP) ---
-  useEffect(() => {
-    let destroyed = false
+  useEffect(() => {
+    let destroyed = false;
 
-    const updateBackground = () => {
-      const app = appRef.current
-      const background = backgroundRef.current
-      if (!app || !background) return
-      background.clear()
-      background.rect(0, 0, app.screen.width, app.screen.height)
-      background.fill({ color: 0xffffff, alpha: 0 })
-      background.hitArea = app.screen
-    }
+    const updateBackground = () => {
+      const app = appRef.current;
+      const background = backgroundRef.current;
+      if (!app || !background) return;
+      background.clear();
+      background.rect(0, 0, app.screen.width, app.screen.height);
+      background.fill({ color: 0xffffff, alpha: 0 });
+      background.hitArea = app.screen;
+    };
 
     const setup = async () => {
-      if (!wrapperRef.current) return
-      const app = new Application()
+      if (!wrapperRef.current) return;
+      const app = new Application();
       await app.init({
         antialias: true,
         autoDensity: true,
         backgroundAlpha: 0,
         resolution: window.devicePixelRatio || 1,
-        autoDensity: true,
         resizeTo: wrapperRef.current,
-      })
+      });
       if (destroyed) {
-        app.destroy()
-        return
-      }      wrapperRef.current.appendChild(app.canvas)
-      app.stage.eventMode = "static"
-      app.stage.hitArea = app.screen
-      app.stage.sortableChildren = true
+        app.destroy();
+        return;
+      }
+      wrapperRef.current.appendChild(app.canvas);
+      app.stage.eventMode = "static";
+      app.stage.hitArea = app.screen;
+      app.stage.sortableChildren = true;
 
-      const background = new Graphics()
-      background.alpha = 0
-      background.eventMode = "static"
-      background.cursor = "default"
-      background.hitArea = app.screen
-      app.stage.addChild(background)
+      const background = new Graphics();
+      background.alpha = 0;
+      background.eventMode = "static";
+      background.cursor = "default";
+      background.hitArea = app.screen;
+      app.stage.addChild(background);
 
-      const content = new Container()
-      content.eventMode = "static"
-      app.stage.addChild(content)
+      const content = new Container();
+      content.eventMode = "static";
+      app.stage.addChild(content);
 
-      const guides = new Graphics()
-      guides.eventMode = "none"
-      guides.zIndex = 9999
-      app.stage.addChild(guides)
-      guidesRef.current = guides
+      const guides = new Graphics();
+      guides.eventMode = "none";
+      guides.zIndex = 9999;
+      app.stage.addChild(guides);
+      guidesRef.current = guides;
 
-      appRef.current = app
-      contentRef.current = content
-      backgroundRef.current = background
-      registerApp(app)
+      appRef.current = app;
+      contentRef.current = content;
+      backgroundRef.current = background;
+      registerApp(app);
 
-      if (stateRef.current.elements.length > 0) {
-        renderElements(content, stateRef.current.elements, stateRef.current)
-      }
+      if (stateRef.current.elements.length > 0) {
+        renderElements(content, stateRef.current.elements, stateRef.current);
+      }
 
-      const resizeObserver = new ResizeObserver(() => {
-        app.resize()
-        updateBackground()
-        // 确保画布大小变化后，缩放比例仍然正确应用
-        if (contentRef.current && stateRef.current) {
-          const content = contentRef.current
-          // 重新应用平移和缩放
-          content.position.set(-stateRef.current.pan.x, -stateRef.current.pan.y)
-          app.stage.scale.set(stateRef.current.zoom)
-        }
-      })
-      resizeObserver.observe(wrapperRef.current)
-      resizeObserverRef.current = resizeObserver
+      const resizeObserver = new ResizeObserver(() => {
+        app.resize();
+        updateBackground(); // 确保画布大小变化后，缩放比例仍然正确应用
+        if (contentRef.current && stateRef.current) {
+          const content = contentRef.current; // 重新应用平移和缩放
+          content.position.set(
+            -stateRef.current.pan.x,
+            -stateRef.current.pan.y
+          );
+          app.stage.scale.set(stateRef.current.zoom);
+        }
+      });
+      resizeObserver.observe(wrapperRef.current);
+      resizeObserverRef.current = resizeObserver;
 
-      background.on("pointerdown", (event: FederatedPointerEvent) => {
-        if (event.originalEvent && (event.originalEvent as any).button === 2) {
-          event.preventDefault();
-          return;
-        }
-        if (stateRef.current.interactionMode === "pan") {
-          // 记录起始指针位置和起始滚动位置
-          const scrollContainer = scrollContainerRef.current
-          panRef.current = {
-            startPointer: { x: event.global.x, y: event.global.y },
-            startScroll: {
-              x: scrollContainer?.scrollLeft ?? 0,
-              y: scrollContainer?.scrollTop ?? 0
-            }
-          }
-          background.cursor = "grabbing"
-        }
-        else if (stateRef.current.interactionMode === "select") {
-          const nativeEvent = event.originalEvent as unknown as MouseEvent;
-          if (!(nativeEvent.shiftKey || nativeEvent.metaKey || nativeEvent.ctrlKey) && event.target === background) {
-            const localPos = event.getLocalPosition(content);
-            selectionStartRef.current = { x: localPos.x, y: localPos.y };
-            isSelectedRef.current = true;
+      background.on("pointerdown", (event: FederatedPointerEvent) => {
+        if (event.originalEvent && (event.originalEvent as any).button === 2) {
+          event.preventDefault();
+          return;
+        }
+        if (stateRef.current.interactionMode === "pan") {
+          // 记录起始指针位置和起始滚动位置
+          const scrollContainer = scrollContainerRef.current;
+          panRef.current = {
+            startPointer: { x: event.global.x, y: event.global.y },
+            startScroll: {
+              x: scrollContainer?.scrollLeft ?? 0,
+              y: scrollContainer?.scrollTop ?? 0,
+            },
+          };
+          background.cursor = "grabbing";
+        } else if (stateRef.current.interactionMode === "select") {
+          const nativeEvent = event.originalEvent as unknown as MouseEvent;
+          if (
+            !(
+              nativeEvent.shiftKey ||
+              nativeEvent.metaKey ||
+              nativeEvent.ctrlKey
+            ) &&
+            event.target === background
+          ) {
+            const localPos = event.getLocalPosition(content);
+            selectionStartRef.current = { x: localPos.x, y: localPos.y };
+            isSelectedRef.current = true;
 
-            const selectionBox = new Graphics();
-            selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
-            selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
-            selectionBox.zIndex = 100;
-            content.addChild(selectionBox);
-            selectionBoxRef.current = selectionBox;
-          }
-        } else {
-          clearSelection()
-        }
-      })
+            const selectionBox = new Graphics();
+            selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
+            selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+            selectionBox.zIndex = 100;
+            content.addChild(selectionBox);
+            selectionBoxRef.current = selectionBox;
+          }
+        } else {
+          clearSelection();
+        }
+      });
 
-      preventContextMenu = (e: Event) => { e.preventDefault(); };
+      preventContextMenu = (e: Event) => {
+        e.preventDefault();
+      };
 
-      const handleRightClick = (event: FederatedPointerEvent) => {
-        event.preventDefault();
-        if (stateRef.current.interactionMode !== "select") return;
-        const originalEvent = event.originalEvent as any;
-        setRightClickMenu({
-          isVisible: true,
-          x: originalEvent.clientX,
-          y: originalEvent.clientY
-        });
-      };
+      const handleRightClick = (event: FederatedPointerEvent) => {
+        event.preventDefault();
+        if (stateRef.current.interactionMode !== "select") return;
+        const originalEvent = event.originalEvent as any;
+        setRightClickMenu({
+          isVisible: true,
+          x: originalEvent.clientX,
+          y: originalEvent.clientY,
+        });
+      };
 
-      app.stage.on("rightclick", handleRightClick);
-      if (appRef.current && appRef.current.canvas) {
-        appRef.current.canvas.addEventListener('contextmenu', preventContextMenu);
-      }
+      app.stage.on("rightclick", handleRightClick);
+      if (appRef.current && appRef.current.canvas) {
+        appRef.current.canvas.addEventListener(
+          "contextmenu",
+          preventContextMenu
+        );
+      }
 
-      const handleGlobalWheelInternal = (event: WheelEvent) => {
-        // 当按下Ctrl/Meta键时，阻止浏览器默认缩放行为
-        if ((event.ctrlKey || event.metaKey)) {
-          // 首先阻止浏览器默认行为
-          event.preventDefault();
-          event.stopPropagation();
+      const handleGlobalWheelInternal = (event: WheelEvent) => {
+        // 当按下Ctrl/Meta键时，阻止浏览器默认缩放行为
+        if (event.ctrlKey || event.metaKey) {
+          // 首先阻止浏览器默认行为
+          event.preventDefault();
+          event.stopPropagation(); // 然后检查鼠标是否在画布内，如果是则执行自定义缩放
 
-          // 然后检查鼠标是否在画布内，如果是则执行自定义缩放
-          const canvas = app.canvas;
-          const rect = canvas.getBoundingClientRect();
-          const isMouseInCanvas = (
-            event.clientX >= rect.left &&
-            event.clientX <= rect.right &&
-            event.clientY >= rect.top &&
-            event.clientY <= rect.bottom
-          );
-          if (isMouseInCanvas) {
-            const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
-            const newZoom = stateRef.current.zoom * zoomFactor;
-            setZoom(newZoom);
-          }
-        }
-        // 否则，让事件正常传播到滚动容器的onScroll事件
-      };
-      // 更新全局变量引用，以便清理
-      handleGlobalWheel = handleGlobalWheelInternal;
-      window.addEventListener('wheel', handleGlobalWheel, { passive: false });
+          const canvas = app.canvas;
+          const rect = canvas.getBoundingClientRect();
+          const isMouseInCanvas =
+            event.clientX >= rect.left &&
+            event.clientX <= rect.right &&
+            event.clientY >= rect.top &&
+            event.clientY <= rect.bottom;
+          if (isMouseInCanvas) {
+            const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+            const newZoom = stateRef.current.zoom * zoomFactor;
+            setZoom(newZoom);
+          }
+        } // 否则，让事件正常传播到滚动容器的onScroll事件
+      }; // 更新全局变量引用，以便清理
+      handleGlobalWheel = handleGlobalWheelInternal;
+      window.addEventListener("wheel", handleGlobalWheel, { passive: false });
 
-      app.stage.on("pointermove", (event: FederatedPointerEvent) => {
-        const content = contentRef.current
-        if (!content) return
+      app.stage.on("pointermove", (event: FederatedPointerEvent) => {
+        const content = contentRef.current;
+        if (!content) return;
 
-        if (isSelectedRef.current && selectionStartRef.current && selectionBoxRef.current) {
-          const localPos = event.getLocalPosition(content);
-          const start = selectionStartRef.current;
-          const x = Math.min(start.x, localPos.x);
-          const y = Math.min(start.y, localPos.y);
-          const width = Math.abs(start.x - localPos.x);
-          const height = Math.abs(start.y - localPos.y);
-          const selectionBox = selectionBoxRef.current;
-          selectionBox.clear();
-          selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
-          selectionBox.beginFill(SELECTION_COLOR, 0.1);
-          selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
-          selectionBox.drawRect(x, y, width, height);
-          selectionBox.endFill();
-          return;
-        }
-
-        if (resizeRef.current) {
-          const current = resizeRef.current
-          const local = event.getLocalPosition(content)
-          const dx = local.x - current.startPointer.x
-          const dy = local.y - current.startPointer.y
-          current.moved = true
-          performResize(current, dx, dy)
-          return
-        }
+        if (
+          isSelectedRef.current &&
+          selectionStartRef.current &&
+          selectionBoxRef.current
+        ) {
+          const localPos = event.getLocalPosition(content);
+          const start = selectionStartRef.current;
+          const x = Math.min(start.x, localPos.x);
+          const y = Math.min(start.y, localPos.y);
+          const width = Math.abs(start.x - localPos.x);
+          const height = Math.abs(start.y - localPos.y);
+          const selectionBox = selectionBoxRef.current;
+          selectionBox.clear();
+          selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
+          selectionBox.beginFill(SELECTION_COLOR, 0.1);
+          selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+          selectionBox.drawRect(x, y, width, height);
+          selectionBox.endFill();
+          return;
+        }
 
         if (resizeRef.current) {
-          const current = resizeRef.current
-          const local = event.getLocalPosition(content)
-          const dx = local.x - current.startPointer.x
-          const dy = local.y - current.startPointer.y
-          current.moved = true
-          performResize(current, dx, dy, true)
-          return
+          const current = resizeRef.current;
+          const local = event.getLocalPosition(content);
+          const dx = local.x - current.startPointer.x;
+          const dy = local.y - current.startPointer.y;
+          current.moved = true;
+          performResize(current, dx, dy, true);
+          return;
         }
-        if (rotateRef.current) {
-          const { centerX, centerY, startAngle, startRotation, id } = rotateRef.current
-          const local = event.getLocalPosition(content)
-          const currentMouseAngle = Math.atan2(local.y - centerY, local.x - centerX)
-          let deltaRad = currentMouseAngle - startAngle
-          let newRotationDeg = startRotation + toDeg(deltaRad)
 
-          if (event.shiftKey) {
-            newRotationDeg = Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE
-          }
+        if (rotateRef.current) {
+          const { centerX, centerY, startAngle, startRotation, id } =
+            rotateRef.current;
+          const local = event.getLocalPosition(content);
+          const currentMouseAngle = Math.atan2(
+            local.y - centerY,
+            local.x - centerX
+          );
+          let deltaRad = currentMouseAngle - startAngle;
+          let newRotationDeg = startRotation + toDeg(deltaRad);
 
-          mutateElements(
-            (elements) => elements.map(el => {
-              if (el.id !== id) return el            
-              return { ...el, rotation: newRotationDeg }
-            }),
-            { recordHistory: false }
-          )
-          return
-        }
+          if (event.shiftKey) {
+            newRotationDeg =
+              Math.round(newRotationDeg / SNAP_ANGLE) * SNAP_ANGLE;
+          }
 
-        if (dragRef.current) {
-          const current = dragRef.current
-          const local = event.getLocalPosition(content)
-          const dx = local.x - current.startPointer.x
-          const dy = local.y - current.startPointer.y
+          mutateElements(
+            (elements) =>
+              elements.map((el) => {
+                if (el.id !== id) return el;
+                return { ...el, rotation: newRotationDeg };
+              }),
+            { recordHistory: false }
+          );
+          return;
+        }
 
-          const movingElements = stateRef.current.elements.filter(el => current.ids.includes(el.id));
-          const zoom = stateRef.current.zoom;
-          const { dx: snappedDx, dy: snappedDy, guides } = calculateSnap(
-            movingElements,
-            stateRef.current.elements,
-            dx,
-            dy,
-            current.snapshot,
-            5 / zoom
-          );
+        if (dragRef.current) {
+          const current = dragRef.current;
+          const local = event.getLocalPosition(content);
+          const dx = local.x - current.startPointer.x;
+          const dy = local.y - current.startPointer.y;
 
-          currentGuidesRef.current = guides;
+          const movingElements = stateRef.current.elements.filter((el) =>
+            current.ids.includes(el.id)
+          );
+          const zoom = stateRef.current.zoom;
+          const {
+            dx: snappedDx,
+            dy: snappedDy,
+            guides,
+          } = calculateSnap(
+            movingElements,
+            stateRef.current.elements,
+            dx,
+            dy,
+            current.snapshot,
+            5 / zoom
+          );
 
-          if (guidesRef.current) {
-            const g = guidesRef.current;
-            g.clear();
-            if (guides.length > 0) {
-              const lineWidth = Math.max(1, 1 / zoom);
-              const app = appRef.current;
-              if (app) {
-                const pan = stateRef.current.pan;
-                const screen = app.screen;
-                const padding = 5000 / zoom;
-                const minX = (-pan.x / zoom) - padding;
-                const maxX = ((screen.width - pan.x) / zoom) + padding;
-                const minY = (-pan.y / zoom) - padding;
-                const maxY = ((screen.height - pan.y) / zoom) + padding;
+          currentGuidesRef.current = guides;
 
-                guides.forEach(guide => {
-                  if (guide.type === 'horizontal') {
-                    g.moveTo(minX, guide.coor);
-                    g.lineTo(maxX, guide.coor);
-                  } else {
-                    g.moveTo(guide.coor, minY);
-                    g.lineTo(guide.coor, maxY);
-                  }
-                });
-                g.stroke({ width: lineWidth, color: 0x947eec, alpha: 1 });
-              }
-            }
-          }
+          if (guidesRef.current) {
+            const g = guidesRef.current;
+            g.clear();
+            if (guides.length > 0) {
+              const lineWidth = Math.max(1, 1 / zoom);
+              const app = appRef.current;
+              if (app) {
+                const pan = stateRef.current.pan;
+                const screen = app.screen;
+                const padding = 5000 / zoom;
+                const minX = -pan.x / zoom - padding;
+                const maxX = (screen.width - pan.x) / zoom + padding;
+                const minY = -pan.y / zoom - padding;
+                const maxY = (screen.height - pan.y) / zoom + padding;
 
-          if (Math.abs(snappedDx) > 0.01 || Math.abs(snappedDy) > 0.01) {
-            current.moved = true
-            mutateElements(
-              (elements) =>
-                elements.map((el) => {
-                  if (!current.ids.includes(el.id)) return el
-                  const base = current.snapshot[el.id] ?? el
-                  return { ...el, x: base.x + snappedDx, y: base.y + snappedDy }
-                }) as CanvasElement[],
-              { recordHistory: false }
-            )
-          }
-          return
-        }
+                guides.forEach((guide) => {
+                  if (guide.type === "horizontal") {
+                    g.moveTo(minX, guide.coor);
+                    g.lineTo(maxX, guide.coor);
+                  } else {
+                    g.moveTo(guide.coor, minY);
+                    g.lineTo(guide.coor, maxY);
+                  }
+                });
+                g.stroke({ width: lineWidth, color: 0x947eec, alpha: 1 });
+              }
+            }
+          }
 
-        if (panRef.current) {
-          const scrollContainer = scrollContainerRef.current
-          if (!scrollContainer) return
-          
-          // 计算鼠标位移（从起始位置）
-          const dx = panRef.current.startPointer.x - event.global.x
-          const dy = panRef.current.startPointer.y - event.global.y
-          
-          // 直接修改 DOM scrollLeft/scrollTop，这会触发 onScroll 事件
-          // onScroll 事件会统一更新 Pixi 容器位置
-          scrollContainer.scrollLeft = panRef.current.startScroll.x + dx
-          scrollContainer.scrollTop = panRef.current.startScroll.y + dy
-        }
-      })
+          if (Math.abs(snappedDx) > 0.01 || Math.abs(snappedDy) > 0.01) {
+            current.moved = true;
+            mutateElements(
+              (elements) =>
+                elements.map((el) => {
+                  if (!current.ids.includes(el.id)) return el;
+                  const base = current.snapshot[el.id] ?? el;
+                  return {
+                    ...el,
+                    x: base.x + snappedDx,
+                    y: base.y + snappedDy,
+                  };
+                }) as CanvasElement[],
+              { recordHistory: false }
+            );
+          }
+          return;
+        }
 
-      const stopInteractions = () => {
-        if (rotateRef.current) {
-          mutateElements(
-            (elements) => elements,
-            {
-              historySnapshot: rotateRef.current.snapshot
-            }
-          )
-          if (rotateRef.current.tooltip) {
-            rotateRef.current.tooltip = null
-          }
-          rotateRef.current = null
-        }
+        if (panRef.current) {
+          const scrollContainer = scrollContainerRef.current;
+          if (!scrollContainer) return; // 计算鼠标位移（从起始位置）
+          const dx = panRef.current.startPointer.x - event.global.x;
+          const dy = panRef.current.startPointer.y - event.global.y; // 直接修改 DOM scrollLeft/scrollTop，这会触发 onScroll 事件 // onScroll 事件会统一更新 Pixi 容器位置
+          scrollContainer.scrollLeft = panRef.current.startScroll.x + dx;
+          scrollContainer.scrollTop = panRef.current.startScroll.y + dy;
+        }
+      });
 
-        if (isSelectedRef.current && selectionBoxRef.current && selectionStartRef.current) {
-          const selectionBox = selectionBoxRef.current;
-          const bounds = selectionBox.getBounds();
-          const selectionRect = new Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
-          const selectedElements = stateRef.current.elements.filter(elem => {
-            const elemRect = new Rectangle(elem.x, elem.y, elem.width, elem.height);
-            return selectionRect.intersects(elemRect);
-          });
-          if (selectedElements.length > 0) {
-            setSelection(selectedElements.map((el) => el.id));
-          } else {
-            clearSelection();
-          }
-          selectionBox.destroy();
-          selectionBoxRef.current = null;
-        }
+      const stopInteractions = () => {
+        if (rotateRef.current) {
+          mutateElements((elements) => elements, {
+            historySnapshot: rotateRef.current.snapshot,
+          });
+          if (rotateRef.current.tooltip) {
+            rotateRef.current.tooltip = null;
+          }
+          rotateRef.current = null;
+        }
 
-        isSelectedRef.current = false;
-        selectionStartRef.current = null;
+        if (
+          isSelectedRef.current &&
+          selectionBoxRef.current &&
+          selectionStartRef.current
+        ) {
+          const selectionBox = selectionBoxRef.current;
+          const bounds = selectionBox.getBounds();
+          const selectionRect = new Rectangle(
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height
+          );
+          const selectedElements = stateRef.current.elements.filter((elem) => {
+            const elemRect = new Rectangle(
+              elem.x,
+              elem.y,
+              elem.width,
+              elem.height
+            );
+            return selectionRect.intersects(elemRect);
+          });
+          if (selectedElements.length > 0) {
+            setSelection(selectedElements.map((el) => el.id));
+          } else {
+            clearSelection();
+          }
+          selectionBox.destroy();
+          selectionBoxRef.current = null;
+        }
 
-        const background = backgroundRef.current
-        if (panRef.current && background) {
-          background.cursor = "default"
-        }
+        isSelectedRef.current = false;
+        selectionStartRef.current = null;
 
-        if (dragRef.current?.moved) {
-          currentGuidesRef.current = [];
-          if (guidesRef.current) {
-            guidesRef.current.clear();
-          }
-          mutateElements(
-            (elements) => elements,
-            {
-              historySnapshot: dragRef.current.historySnapshot,
-            }
-          )
-        }
+        const background = backgroundRef.current;
+        if (panRef.current && background) {
+          background.cursor = "default";
+        }
 
-        if (resizeRef.current?.moved) {
-          mutateElements(
-            (elements) => elements,
-            {
-              historySnapshot: resizeRef.current.historySnapshot,
-            }
-          )
-        }
+        if (dragRef.current?.moved) {
+          currentGuidesRef.current = [];
+          if (guidesRef.current) {
+            guidesRef.current.clear();
+          }
+          mutateElements((elements) => elements, {
+            historySnapshot: dragRef.current.historySnapshot,
+          });
+        }
+
+        if (resizeRef.current?.moved) {
+          mutateElements((elements) => elements, {
+            historySnapshot: resizeRef.current.historySnapshot,
+          });
+        }
 
         if (resizeRef.current?.moved) {
           currentGuidesRef.current = [];
           if (guidesRef.current) {
             guidesRef.current.clear();
           }
-          mutateElements(
-            (elements) => elements,
-            {
-              historySnapshot: resizeRef.current.historySnapshot,
-            }
-          )
+          mutateElements((elements) => elements, {
+            historySnapshot: resizeRef.current.historySnapshot,
+          });
         }
-        dragRef.current = null
-        resizeRef.current = null
-        panRef.current = null
-      }
+        dragRef.current = null;
+        resizeRef.current = null;
+        panRef.current = null;
+      };
 
-      app.stage.on("pointerup", stopInteractions)
-      app.stage.on("pointerupoutside", stopInteractions)
-    }
+      app.stage.on("pointerup", stopInteractions);
+      app.stage.on("pointerupoutside", stopInteractions);
+    };
 
-    setup()
+    setup();
 
-    return () => {
-      destroyed = true
-      resizeObserverRef.current?.disconnect()
-      const app = appRef.current
-      app?.stage.removeAllListeners()
-      app?.destroy(true)
-      registerApp(null)
-      appRef.current = null
-      contentRef.current = null
-      backgroundRef.current = null
-      if (handleGlobalWheel) {
-        window.removeEventListener('wheel', handleGlobalWheel)
-        handleGlobalWheel = null
-      }
-    }
-  }, [clearSelection, mutateElements, panBy, registerApp, performResize, setSelection, renderPage])
+    return () => {
+      destroyed = true;
+      resizeObserverRef.current?.disconnect();
+      const app = appRef.current;
+      app?.stage.removeAllListeners();
+      app?.destroy(true);
+      registerApp(null);
+      appRef.current = null;
+      contentRef.current = null;
+      backgroundRef.current = null;
+      if (handleGlobalWheel) {
+        window.removeEventListener("wheel", handleGlobalWheel);
+        handleGlobalWheel = null;
+      }
+    };
+  }, [
+    clearSelection,
+    mutateElements,
+    panBy,
+    registerApp,
+    performResize,
+    setSelection,
+    renderPage,
+  ]);
 
-  const menuItems = [
-    {
-      label: '打组 (Ctrl+G)',
-      onClick: () => {
-        if (state.selectedIds.length >= 2) {
-          groupElements();
-          setRightClickMenu({ isVisible: false, x: 0, y: 0 });
-        }
-      },
-      disabled: state.selectedIds.length < 2
-    },
-    {
-      label: '解组 (Ctrl+Shift+G)',
-      onClick: () => {
-        if (isGroupSelected) {
-          ungroupElements();
-          setRightClickMenu({ isVisible: false, x: 0, y: 0 });
-        }
-      },
-      disabled: !isGroupSelected
-    }
-  ];
+  const menuItems = [
+    {
+      label: "打组 (Ctrl+G)",
+      onClick: () => {
+        if (state.selectedIds.length >= 2) {
+          groupElements();
+          setRightClickMenu({ isVisible: false, x: 0, y: 0 });
+        }
+      },
+      disabled: state.selectedIds.length < 2,
+    },
+    {
+      label: "解组 (Ctrl+Shift+G)",
+      onClick: () => {
+        if (isGroupSelected) {
+          ungroupElements();
+          setRightClickMenu({ isVisible: false, x: 0, y: 0 });
+        }
+      },
+      disabled: !isGroupSelected,
+    },
+  ]; // --- 12. 滚动条相关逻辑 ---
 
-  // --- 12. 滚动条相关逻辑 --- 
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  // 虚拟内容尺寸，用于撑大滚动区域
-  const [contentSize, setContentSize] = useState({ width: 4000, height: 4000 });
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null); // 虚拟内容尺寸，用于撑大滚动区域
+  const [contentSize, setContentSize] = useState({ width: 4000, height: 4000 }); // 更新内容尺寸
 
-  // 更新内容尺寸
-  const updateContentSize = useCallback(() => {
-    // 计算所有元素的边界框
-    const bounds = getBoundingBox(state.elements);
-    if (bounds) {
-      // 添加边距，确保有足够的滚动空间
-      const padding = 1000;
-      const newWidth = Math.max(4000, bounds.x + bounds.width + padding);
-      const newHeight = Math.max(4000, bounds.y + bounds.height + padding);
-      setContentSize(prev => {
-        if (prev.width !== newWidth || prev.height !== newHeight) {
-          return { width: newWidth, height: newHeight };
-        }
-        return prev;
-      });
-    } else {
-      // 如果没有元素，使用默认大小
-      setContentSize(prev => {
-        if (prev.width !== 4000 || prev.height !== 4000) {
-          return { width: 4000, height: 4000 };
-        }
-        return prev;
-      });
-    }
-  }, [state.elements]);
+  const updateContentSize = useCallback(() => {
+    // 计算所有元素的边界框
+    const bounds = getBoundingBox(state.elements);
+    if (bounds) {
+      // 添加边距，确保有足够的滚动空间
+      const padding = 1000;
+      const newWidth = Math.max(4000, bounds.x + bounds.width + padding);
+      const newHeight = Math.max(4000, bounds.y + bounds.height + padding);
+      setContentSize((prev) => {
+        if (prev.width !== newWidth || prev.height !== newHeight) {
+          return { width: newWidth, height: newHeight };
+        }
+        return prev;
+      });
+    } else {
+      // 如果没有元素，使用默认大小
+      setContentSize((prev) => {
+        if (prev.width !== 4000 || prev.height !== 4000) {
+          return { width: 4000, height: 4000 };
+        }
+        return prev;
+      });
+    }
+  }, [state.elements]); // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源 // 直接驱动 Pixi 容器位置更新，不经过 React state
 
-  // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源
-  // 直接驱动 Pixi 容器位置更新，不经过 React state
-  const handleScroll = useCallback(() => {
-    const scrollContainer = scrollContainerRef.current
-    const content = contentRef.current
-    const guides = guidesRef.current
-    if (!scrollContainer || !content) return
+  const handleScroll = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    const content = contentRef.current;
+    const guides = guidesRef.current;
+    if (!scrollContainer || !content) return; // 获取当前滚动位置
 
-    // 获取当前滚动位置
-    const scrollX = scrollContainer.scrollLeft
-    const scrollY = scrollContainer.scrollTop
+    const scrollX = scrollContainer.scrollLeft;
+    const scrollY = scrollContainer.scrollTop; // 直接更新 Pixi 容器位置（负值，因为滚动向右时内容向左移动）
 
-    // 直接更新 Pixi 容器位置（负值，因为滚动向右时内容向左移动）
-    content.position.set(-scrollX, -scrollY)
-    if (guides) {
-      guides.position.set(-scrollX, -scrollY)
-    }
-    
-    // 同步更新 stateRef 供其他逻辑使用（如元素拖拽时的坐标计算）
-    // 注意：这里不调用 panBy，避免触发 React 重渲染
-    stateRef.current = {
-      ...stateRef.current,
-      pan: { x: scrollX, y: scrollY }
-    }
-  }, []);
+    content.position.set(-scrollX, -scrollY);
+    if (guides) {
+      guides.position.set(-scrollX, -scrollY);
+    } // 同步更新 stateRef 供其他逻辑使用（如元素拖拽时的坐标计算） // 注意：这里不调用 panBy，避免触发 React 重渲染
+    stateRef.current = {
+      ...stateRef.current,
+      pan: { x: scrollX, y: scrollY },
+    };
+  }, []); // 初始化时同步滚动条位置到 state.pan（只执行一次）
 
-  // 初始化时同步滚动条位置到 state.pan（只执行一次）
-  useEffect(() => {
-    if (isInitialized && scrollContainerRef.current) {
-      const scrollContainer = scrollContainerRef.current
-      // 如果 state.pan 有初始值，同步到滚动条
-      if (state.pan.x !== 0 || state.pan.y !== 0) {
-        scrollContainer.scrollLeft = state.pan.x
-        scrollContainer.scrollTop = state.pan.y
-      }
-    }
-    // 只在初始化时执行一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized]);
+  useEffect(() => {
+    if (isInitialized && scrollContainerRef.current) {
+      const scrollContainer = scrollContainerRef.current; // 如果 state.pan 有初始值，同步到滚动条
+      if (state.pan.x !== 0 || state.pan.y !== 0) {
+        scrollContainer.scrollLeft = state.pan.x;
+        scrollContainer.scrollTop = state.pan.y;
+      }
+    } // 只在初始化时执行一次 // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized]); // 当元素变化时更新内容尺寸 (使用防抖优化)
 
-  // 当元素变化时更新内容尺寸 (使用防抖优化)
-  useEffect(() => {
-    // 使用 setTimeout 进行防抖，避免频繁更新
-    const timer = setTimeout(() => {
-      updateContentSize();
-    }, 100);
+  useEffect(() => {
+    // 使用 setTimeout 进行防抖，避免频繁更新
+    const timer = setTimeout(() => {
+      updateContentSize();
+    }, 100);
 
-    return () => clearTimeout(timer);
-  }, [updateContentSize]);
+    return () => clearTimeout(timer);
+  }, [updateContentSize]); // 当缩放变化时更新内容尺寸
 
-  // 当缩放变化时更新内容尺寸
-  useEffect(() => {
-    updateContentSize();
-  }, [state.zoom, updateContentSize]);
-return (
-  <div className="relative h-full w-full overflow-hidden">
-    {/* 1. Scroll Container 
+  useEffect(() => {
+    updateContentSize();
+  }, [state.zoom, updateContentSize]);
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      {/* 1. Scroll Container 
         这是唯一的滚动容器。所有东西都在这里面。
     */}
-    <div
-      ref={scrollContainerRef}
-      className="h-full w-full overflow-auto relative" // 确保是 relative
-      onScroll={handleScroll}
-    >
-      {/* 2. Content Sizer 
+      <div
+        ref={scrollContainerRef}
+        className="h-full w-full overflow-auto relative" // 确保是 relative
+        onScroll={handleScroll}
+      >
+        {/* 2. Content Sizer 
           放在这里是为了撑大父容器(Scroll Container)。
           使用 absolute 避免干扰 sticky 的布局流。
       */}
-      <div
-        style={{
-          width: `${contentSize.width}px`,
-          height: `${contentSize.height}px`,
-          position: 'absolute', // 关键：绝对定位
-          top: 0,
-          left: 0,
-          pointerEvents: 'none', // 让点击穿透
-          zIndex: 0
-        }}
-      />
+        <div
+          style={{
+            width: `${contentSize.width}px`,
+            height: `${contentSize.height}px`,
+            position: "absolute", // 关键：绝对定位
+            top: 0,
+            left: 0,
+            pointerEvents: "none", // 让点击穿透
+            zIndex: 0,
+          }}
+        />
 
-      {/* 3. Canvas Wrapper (Sticky)
+        {/* 3. Canvas Wrapper (Sticky)
           必须放在 Scroll Container 内部！
           position: sticky 保证它永远吸附在滚动视口的左上角，
           而不会随内容滚出屏幕。
       */}
-      <div
-        ref={wrapperRef}
-        style={{
-          position: 'sticky', // 关键修改：使用 sticky
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-          zIndex: 1 // 确保在 Sizer 之上接收事件
-        }}
+        <div
+          ref={wrapperRef}
+          style={{
+            position: "sticky", // 关键修改：使用 sticky
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+            zIndex: 1, // 确保在 Sizer 之上接收事件
+          }}
+        />
+      </div>
+
+      {/* 右键菜单层级最高，放在外面没问题 */}
+      <RightClickMenu
+        items={menuItems}
+        x={rightClickMenu.x}
+        y={rightClickMenu.y}
+        isVisible={rightClickMenu.isVisible}
+        onClose={() => setRightClickMenu({ isVisible: false, x: 0, y: 0 })}
       />
     </div>
-    
-    {/* 右键菜单层级最高，放在外面没问题 */}
-    <RightClickMenu
-      items={menuItems}
-      x={rightClickMenu.x}
-      y={rightClickMenu.y}
-      isVisible={rightClickMenu.isVisible}
-      onClose={() => setRightClickMenu({ isVisible: false, x: 0, y: 0 })}
-    />
-  </div>
-)
-}
+  );
+};
