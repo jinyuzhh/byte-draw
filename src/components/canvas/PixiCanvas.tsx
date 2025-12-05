@@ -101,7 +101,6 @@ export const PixiCanvas = () => {
     y: 0,
   }); // --- 4. 辅助函数 ---
 
-  const toRad = (deg: number) => deg * (Math.PI / 180);
   const toDeg = (rad: number) => rad * (180 / Math.PI); // --- 5. Effect: 初始化状态标记 ---
 
   useEffect(() => {
@@ -787,7 +786,7 @@ export const PixiCanvas = () => {
             local.y - centerY,
             local.x - centerX
           );
-          let deltaRad = currentMouseAngle - startAngle;
+          const deltaRad = currentMouseAngle - startAngle;
           let newRotationDeg = startRotation + toDeg(deltaRad);
 
           if (event.shiftKey) {
