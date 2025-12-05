@@ -440,6 +440,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       mutateElements((elements) => [...elements, element])
       // 自动选中新添加的元素
       dispatch({ type: "SET_SELECTION", payload: [id] })
+      // 自动切换到选择模式
+      dispatch({ type: "SET_MODE", payload: "select" })
     },
     [mutateElements, state.elements.length]
   )
@@ -483,6 +485,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       mutateElements((elements) => [...elements, element])
       // 自动选中新添加的元素
       dispatch({ type: "SET_SELECTION", payload: [id] })
+      // 自动切换到选择模式
+      dispatch({ type: "SET_MODE", payload: "select" })
     },
     [mutateElements, state.elements.length]
   )
@@ -530,6 +534,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       mutateElements((elements) => [...elements, element])
       // 自动选中新添加的元素
       dispatch({ type: "SET_SELECTION", payload: [id] })
+      // 自动切换到选择模式
+      dispatch({ type: "SET_MODE", payload: "select" })
     },
     [mutateElements, state.elements.length]
   )
