@@ -265,12 +265,55 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const [state, dispatch] = useReducer(canvasReducer, undefined, getInitialState)
   // 存储 PixiJS 应用实例的引用
   const appRef = useRef<Application | null>(null)
+  // 存储滚动容器DOM元素的引用，用于获取当前滚动位置
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [isInitialized] = useState(true)
 
   // 使用 useRef 作为内部剪贴板，存储复制的元素
   const clipboardRef = useRef<CanvasElement[]>([])
   // 计算粘贴次数，用来计算连续粘贴的偏移量
   const pasteCountRef = useRef(1)
+
+  /**
+   * 获取当前视口中心的画布坐标
+   * 
+   * @function getViewportCenter
+   * @returns {{ x: number, y: number }} 视口中心的画布坐标
+   * 
+   * @description 
+   * 根据当前滚动位置和视口尺寸计算视口中心在画布坐标系中的位置：
+   * 1. 从滚动容器获取当前滚动位置（scrollLeft, scrollTop）
+   * 2. 从 PixiJS 应用获取视口尺寸
+   * 3. 考虑缩放比例计算实际的画布坐标
+   */
+  const getViewportCenter = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current
+    const app = appRef.current
+
+    // 默认位置（如果无法获取视口信息）
+    const defaultCenter = { x: 400, y: 300 }
+
+    if (!scrollContainer || !app) {
+      return defaultCenter
+    }
+
+    // 获取当前滚动位置
+    const scrollX = scrollContainer.scrollLeft
+    const scrollY = scrollContainer.scrollTop
+
+    // 获取视口尺寸
+    const viewportWidth = scrollContainer.clientWidth
+    const viewportHeight = scrollContainer.clientHeight
+
+    // 获取当前缩放比例
+    const zoom = state.zoom
+
+    // 计算视口中心在画布坐标系中的位置
+    const centerX = scrollX + (viewportWidth / 2) / zoom
+    const centerY = scrollY + (viewportHeight / 2) / zoom
+
+    return { x: centerX, y: centerY }
+  }, [state.zoom])
 
   /**
    * 更新元素列表的核心方法
@@ -410,7 +453,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * @description 
    * 创建一个新的形状元素并添加到画布中：
    * 1. 根据形状类型设置默认尺寸（矩形：220x140，圆形：160x160）
-   * 2. 设置默认位置（320, 180）和样式属性
+   * 2. 将元素放置在当前视口中心位置
    * 3. 矩形默认圆角为12px，圆形无圆角
    * 4. 将新元素添加到画布并自动选中
    */
@@ -419,12 +462,14 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       const id = createId()
       // 根据形状类型设置默认尺寸
       const size = shape === "rectangle" ? { width: 220, height: 140 } : { width: 160, height: 160 }
+      // 计算视口中心位置，将元素放置在中心
+      const viewportCenter = getViewportCenter()
       const element: CanvasElement = {
         id,
         type: "shape",
         name: `${shape} ${state.elements.length + 1}`,
-        x: 320,
-        y: 180,
+        x: viewportCenter.x - size.width / 2,
+        y: viewportCenter.y - size.height / 2,
         width: size.width,
         height: size.height,
         rotation: 0,
@@ -443,7 +488,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length]
+    [mutateElements, state.elements.length, getViewportCenter]
   )
 
   /**
@@ -454,7 +499,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 
    * @description 
    * 创建一个新的文本元素并添加到画布中：
-   * 1. 设置默认位置（360, 220）和尺寸（260x80）
+   * 1. 将元素放置在当前视口中心位置
    * 2. 使用默认字体样式（Inter字体，24px大小，500字重）
    * 3. 设置默认文本颜色和背景色
    * 4. 将新元素添加到画布并自动选中
@@ -462,14 +507,18 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const addText = useCallback(
     (text = "双击编辑文本") => {
       const id = createId()
+      // 计算视口中心位置，将元素放置在中心
+      const viewportCenter = getViewportCenter()
+      const width = 260
+      const height = 80
       const element: CanvasElement = {
         id,
         type: "text",
         name: `文本 ${state.elements.length + 1}`,
-        x: 360,
-        y: 220,
-        width: 260,
-        height: 80,
+        x: viewportCenter.x - width / 2,
+        y: viewportCenter.y - height / 2,
+        width,
+        height,
         rotation: 0,
         opacity: 1,
         text: text || "请输入文本内容...", // 如果传入空串，则使用默认文本
@@ -488,7 +537,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length]
+    [mutateElements, state.elements.length, getViewportCenter]
   )
 
   /**
@@ -502,7 +551,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 
    * @description 
    * 创建一个新的图片元素并添加到画布中：
-   * 1. 设置默认位置（280, 160）和尺寸（240x160，可通过参数覆盖）
+   * 1. 将元素放置在当前视口中心位置
    * 2. 初始化默认滤镜设置（无灰度、无模糊、正常亮度）
    * 3. 设置默认圆角为12px
    * 4. 将新元素添加到画布并自动选中
@@ -510,15 +559,19 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const addImage = useCallback(
     (src: string, size?: { width: number; height: number }) => {
       const id = createId()
+      // 计算视口中心位置，将元素放置在中心
+      const viewportCenter = getViewportCenter()
+      // 使用传入的尺寸或默认尺寸
+      const width = size?.width ?? 240
+      const height = size?.height ?? 160
       const element: CanvasElement = {
         id,
         type: "image",
         name: `图片 ${state.elements.length + 1}`,
-        x: 280,
-        y: 160,
-        // 使用传入的尺寸或默认尺寸
-        width: size?.width ?? 240,
-        height: size?.height ?? 160,
+        x: viewportCenter.x - width / 2,
+        y: viewportCenter.y - height / 2,
+        width,
+        height,
         rotation: 0,
         opacity: 1,
         src,
@@ -537,7 +590,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length]
+    [mutateElements, state.elements.length, getViewportCenter]
   )
 
   /**
@@ -875,6 +928,22 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   /**
+   * 注册滚动容器DOM元素
+   * 
+   * @function registerScrollContainer
+   * @param {HTMLDivElement | null} container - 滚动容器DOM元素
+   * 
+   * @description 
+   * 将滚动容器DOM元素存储到ref中：
+   * 1. 用于获取当前滚动位置来计算视口中心
+   * 2. 使添加新元素时可以将其放置在当前可见视口的中心位置
+   * 3. 通常在PixiCanvas组件初始化时调用
+   */
+  const registerScrollContainer = useCallback((container: HTMLDivElement | null) => {
+    scrollContainerRef.current = container
+  }, [])
+
+  /**
    * 导出画布为PNG图片
    * 
    * @function exportAsImage
@@ -962,6 +1031,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       redo,
       // 应用操作方法
       registerApp,
+      registerScrollContainer,
       exportAsImage,
       // 剪贴板操作方法
       copy,
@@ -988,6 +1058,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       undo,
       redo,
       registerApp,
+      registerScrollContainer,
       exportAsImage,
       copy,
       paste,

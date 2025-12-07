@@ -43,6 +43,7 @@ export const PixiCanvas = () => {
     mutateElements,
     panBy,
     registerApp,
+    registerScrollContainer,
     setZoom,
     groupElements,
     ungroupElements,
@@ -1071,13 +1072,22 @@ export const PixiCanvas = () => {
 
   useEffect(() => {
     if (isInitialized && scrollContainerRef.current) {
-      const scrollContainer = scrollContainerRef.current; // 如果 state.pan 有初始值，同步到滚动条
+      const scrollContainer = scrollContainerRef.current;
+      // 注册滚动容器到 CanvasProvider，用于计算视口中心
+      registerScrollContainer(scrollContainer);
+      // 如果 state.pan 有初始值，同步到滚动条
       if (state.pan.x !== 0 || state.pan.y !== 0) {
         scrollContainer.scrollLeft = state.pan.x;
         scrollContainer.scrollTop = state.pan.y;
       }
-    } // 只在初始化时执行一次 // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized]); // 当元素变化时更新内容尺寸 (使用防抖优化)
+    }
+    // 组件卸载时取消注册
+    return () => {
+      registerScrollContainer(null);
+    };
+    // 只在初始化时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized, registerScrollContainer]); // 当元素变化时更新内容尺寸 (使用防抖优化)
 
   useEffect(() => {
     // 使用 setTimeout 进行防抖，避免频繁更新
