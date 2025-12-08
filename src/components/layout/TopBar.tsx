@@ -1,24 +1,36 @@
-import { useCallback } from "react"
+import { useCallback, type ReactNode } from "react"
 import { useCanvas } from "../../store/CanvasProvider"
+import {
+  MousePointer2,
+  Move,
+  Undo2,
+  Redo2,
+  Download,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react"
 
 const ControlButton = ({
   active,
   label,
+  icon,
   onClick,
 }: {
   active?: boolean
   label: string
+  icon?: ReactNode
   onClick?: () => void
 }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`px-3 py-1.5 rounded-md border transition text-sm font-medium ${
+    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition text-sm font-medium ${
       active
         ? "bg-canvas-accent text-white border-canvas-accent shadow-sm"
         : "border-canvas-border bg-white hover:bg-slate-50"
     }`}
   >
+    {icon}
     {label}
   </button>
 )
@@ -67,17 +79,19 @@ export const TopBar = () => {
         {/* 交互模式切换按钮 */}
         <ControlButton
           label="选择"
+          icon={<MousePointer2 size={16} />}
           active={canvasState.interactionMode === "select"}
           onClick={() => setInteractionMode("select")}
         />
         <ControlButton
           label="移动"
+          icon={<Move size={16} />}
           active={canvasState.interactionMode === "pan"}
           onClick={() => setInteractionMode("pan")}
         />
         {/* 历史操作按钮 */}
-        <ControlButton label="撤销" onClick={undo} />
-        <ControlButton label="重做" onClick={redo} />
+        <ControlButton label="撤销" icon={<Undo2 size={16} />} onClick={undo} />
+        <ControlButton label="重做" icon={<Redo2 size={16} />} onClick={redo} />
       </div>
 
       {/* 右侧：缩放控制和导出区域 */}
@@ -88,9 +102,9 @@ export const TopBar = () => {
           <button
             type="button"
             onClick={() => setZoom(canvasState.zoom - 0.1)}
-            className="text-slate-500 hover:text-slate-900"
+            className="text-slate-500 hover:text-slate-900 transition-colors"
           >
-            -
+            <ZoomOut size={16} />
           </button>
           {/* 缩放滑块 */}
           <input
@@ -106,9 +120,9 @@ export const TopBar = () => {
           <button
             type="button"
             onClick={() => setZoom(canvasState.zoom + 0.1)}
-            className="text-slate-500 hover:text-slate-900"
+            className="text-slate-500 hover:text-slate-900 transition-colors"
           >
-            +
+            <ZoomIn size={16} />
           </button>
           {/* 缩放比例显示 */}
           <span className="font-semibold text-slate-700">
@@ -120,8 +134,9 @@ export const TopBar = () => {
         <button
           type="button"
           onClick={handleExport}
-          className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-md hover:bg-slate-800"
+          className="flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-md hover:bg-slate-800 transition-colors"
         >
+          <Download size={16} />
           导出 PNG
         </button>
       </div>

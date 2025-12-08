@@ -24,9 +24,9 @@
 
 import { CanvasProvider } from "./store/CanvasProvider"
 import { TopBar } from "./components/layout/TopBar"
-import { LeftPanel } from "./components/layout/LeftPanel"
+import { LeftPanel } from "./components/panels/LeftPanel"
 import { CanvasArea } from "./components/layout/CanvasArea"
-import { RightPanel } from "./components/layout/RightPanel"
+import { RightPanel } from "./components/panels/RightPanel"
 
 /**
  * 应用程序根组件
