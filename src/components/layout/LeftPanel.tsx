@@ -270,8 +270,8 @@ export const LeftPanel = () => {
         if (image.width > MAX_PIXEL || image.height > MAX_PIXEL) {
           try {
             findDataUrl = await compressImage(dataUrl, MAX_PIXEL, MAX_PIXEL)
-          } catch (error) {
-            alert("图片压缩失败，使用图片")
+          } catch (err) {
+            alert("图片压缩失败，使用图片,错误：" + err)
           }
         }
 
