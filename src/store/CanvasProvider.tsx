@@ -287,33 +287,45 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 3. 考虑缩放比例计算实际的画布坐标
    */
   const getViewportCenter = useCallback(() => {
+
     const scrollContainer = scrollContainerRef.current
     const app = appRef.current
 
-    // 默认位置（如果无法获取视口信息）
-    const defaultCenter = { x: 400, y: 300 }
-
-    if (!scrollContainer || !app) {
-      return defaultCenter
-    }
-
-    // 获取当前滚动位置
-    const scrollX = scrollContainer.scrollLeft
-    const scrollY = scrollContainer.scrollTop
-
-    // 获取视口尺寸
-    const viewportWidth = scrollContainer.clientWidth
-    const viewportHeight = scrollContainer.clientHeight
-
-    // 获取当前缩放比例
+    // 计算当前的缩放比例
     const zoom = state.zoom
 
-    // 计算视口中心在画布坐标系中的位置
-    const centerX = scrollX + (viewportWidth / 2) / zoom
-    const centerY = scrollY + (viewportHeight / 2) / zoom
+    if (scrollContainer && app) {
+      // 如果有滚动容器和应用实例，使用实际的视口信息计算
+      // 获取当前滚动位置
+      const scrollX = scrollContainer.scrollLeft
+      const scrollY = scrollContainer.scrollTop
 
-    return { x: centerX, y: centerY }
-  }, [state.zoom])
+      // 获取视口尺寸
+      const viewportWidth = scrollContainer.clientWidth
+      const viewportHeight = scrollContainer.clientHeight
+
+      // 计算视口中心在画布坐标系中的位置
+      const centerX = scrollX + (viewportWidth / 2) / zoom
+      const centerY = scrollY + (viewportHeight / 2) / zoom
+
+      return { x: centerX, y: centerY }
+    } else {
+      // 如果没有滚动容器或应用实例，使用当前的pan值和默认视口尺寸计算
+      // 默认视口尺寸（假设中等屏幕大小）
+      const defaultViewportWidth = 800
+      const defaultViewportHeight = 600
+
+      // 使用当前的pan值作为滚动位置
+      const scrollX = state.pan.x
+      const scrollY = state.pan.y
+
+      // 计算视口中心在画布坐标系中的位置
+      const centerX = scrollX + (defaultViewportWidth / 2) / zoom
+      const centerY = scrollY + (defaultViewportHeight / 2) / zoom
+
+      return { x: centerX, y: centerY }
+    }
+  }, [state.zoom, state.pan])
 
   /**
    * 更新元素列表的核心方法

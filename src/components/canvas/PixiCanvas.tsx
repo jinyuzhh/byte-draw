@@ -4,7 +4,6 @@ import {
   Container,
   Graphics,
   FederatedPointerEvent,
-  Rectangle,
 } from "pixi.js";
 import { useCanvas } from "../../store/CanvasProvider";
 import type { CanvasElement, GroupElement } from "../../types/canvas";
@@ -92,7 +91,9 @@ export const PixiCanvas = () => {
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const selectionBoxRef = useRef<Graphics | null>(null);
   const isSelectedRef = useRef(false);
+  const modifierKeysRef = useRef({ shiftKey: false, metaKey: false, ctrlKey: false });
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const selectionLastPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const [renderPage, setRenderPage] = useState(0);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -198,8 +199,8 @@ export const PixiCanvas = () => {
       const selection = additive
         ? Array.from(new Set([...selectedIds, elementId]))
         : selectedIds.includes(elementId)
-        ? selectedIds
-        : [elementId];
+          ? selectedIds
+          : [elementId];
 
       setSelection(selection);
 
@@ -672,25 +673,21 @@ export const PixiCanvas = () => {
           };
           background.cursor = "grabbing";
         } else if (stateRef.current.interactionMode === "select") {
-          const nativeEvent = event.originalEvent as unknown as MouseEvent;
-          if (
-            !(
-              nativeEvent.shiftKey ||
-              nativeEvent.metaKey ||
-              nativeEvent.ctrlKey
-            ) &&
-            event.target === background
-          ) {
+          if (event.target === background) {
             const localPos = event.getLocalPosition(content);
             selectionStartRef.current = { x: localPos.x, y: localPos.y };
+            selectionLastPosRef.current = { x: localPos.x, y: localPos.y };
             isSelectedRef.current = true;
 
             const selectionBox = new Graphics();
             selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
-            selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
+            selectionBox.beginFill(SELECTION_COLOR, 0.1);
+            selectionBox.drawRect(localPos.x, localPos.y, 0, 0);
+            selectionBox.endFill();
             selectionBox.zIndex = 100;
             content.addChild(selectionBox);
             selectionBoxRef.current = selectionBox;
+            console.log('选择框已创建，起始位置:', localPos);
           }
         } else {
           clearSelection();
@@ -745,6 +742,14 @@ export const PixiCanvas = () => {
       window.addEventListener("wheel", handleGlobalWheel, { passive: false });
 
       app.stage.on("pointermove", (event: FederatedPointerEvent) => {
+        // 跟踪修饰键状态
+        const nativeEvent = event.originalEvent as unknown as MouseEvent;
+        modifierKeysRef.current = {
+          shiftKey: nativeEvent.shiftKey,
+          metaKey: nativeEvent.metaKey,
+          ctrlKey: nativeEvent.ctrlKey
+        };
+
         const content = contentRef.current;
         if (!content) return;
 
@@ -754,6 +759,9 @@ export const PixiCanvas = () => {
           selectionBoxRef.current
         ) {
           const localPos = event.getLocalPosition(content);
+          // 记录最后位置，用于选择完成时的手动边界计算
+          selectionLastPosRef.current = localPos;
+
           const start = selectionStartRef.current;
           const x = Math.min(start.x, localPos.x);
           const y = Math.min(start.y, localPos.y);
@@ -763,9 +771,9 @@ export const PixiCanvas = () => {
           selectionBox.clear();
           selectionBox.lineStyle(1, SELECTION_COLOR, 0.8);
           selectionBox.beginFill(SELECTION_COLOR, 0.1);
-          selectionBox.fill({ color: SELECTION_COLOR, alpha: 0.1 });
           selectionBox.drawRect(x, y, width, height);
           selectionBox.endFill();
+          console.log('选择框已更新，尺寸:', { x, y, width, height });
           return;
         }
 
@@ -903,32 +911,68 @@ export const PixiCanvas = () => {
         if (
           isSelectedRef.current &&
           selectionBoxRef.current &&
-          selectionStartRef.current
+          selectionStartRef.current &&
+          selectionLastPosRef.current
         ) {
-          const selectionBox = selectionBoxRef.current;
-          const bounds = selectionBox.getBounds();
-          const selectionRect = new Rectangle(
-            bounds.x,
-            bounds.y,
-            bounds.width,
-            bounds.height
-          );
+          // 直接使用选择框的起始位置和结束位置计算边界
+          const start = selectionStartRef.current;
+          const end = selectionLastPosRef.current;
+
+          const selectionLeft = Math.min(start.x, end.x);
+          const selectionTop = Math.min(start.y, end.y);
+          const selectionRight = Math.max(start.x, end.x);
+          const selectionBottom = Math.max(start.y, end.y);
+
+          console.log('选择框起始位置:', start);
+          console.log('选择框结束位置:', end);
+          console.log('选择框计算边界:', { left: selectionLeft, top: selectionTop, right: selectionRight, bottom: selectionBottom });
+          // 同时记录手动计算的边界作为对比
+          const lastLocalPos = selectionLastPosRef.current || start;
+          const manualX = Math.min(start.x, lastLocalPos.x);
+          const manualY = Math.min(start.y, lastLocalPos.y);
+          const manualWidth = Math.abs(start.x - lastLocalPos.x);
+          const manualHeight = Math.abs(start.y - lastLocalPos.y);
+          console.log('手动计算的选择框边界:', { x: manualX, y: manualY, width: manualWidth, height: manualHeight });
+          console.log('所有元素的位置和大小:', stateRef.current.elements.map(el => ({ id: el.id, x: el.x, y: el.y, width: el.width, height: el.height })));
+
           const selectedElements = stateRef.current.elements.filter((elem) => {
-            const elemRect = new Rectangle(
-              elem.x,
-              elem.y,
-              elem.width,
-              elem.height
+            // 直接使用元素的存储位置（左上角）
+            const elemLeft = elem.x;
+            const elemTop = elem.y;
+            const elemRight = elem.x + elem.width;
+            const elemBottom = elem.y + elem.height;
+
+            // 检查元素与选择框是否相交
+            const intersects = !(
+              elemRight < selectionLeft ||
+              elemLeft > selectionRight ||
+              elemBottom < selectionTop ||
+              elemTop > selectionBottom
             );
-            return selectionRect.intersects(elemRect);
+
+            console.log(`元素 ${elem.id} 存储位置: (${elem.x}, ${elem.y})`);
+            console.log(`元素 ${elem.id} 存储边界:`, { left: elemLeft, top: elemTop, right: elemRight, bottom: elemBottom });
+            console.log(`元素 ${elem.id} 与选择框的交集情况:`, intersects);
+            return intersects;
           });
+
+          console.log('选中的元素:', selectedElements);
+
           if (selectedElements.length > 0) {
-            setSelection(selectedElements.map((el) => el.id));
+            // 使用跟踪的修饰键状态来决定是否累加选择
+            const additive = modifierKeysRef.current.shiftKey || modifierKeysRef.current.metaKey || modifierKeysRef.current.ctrlKey;
+            console.log('累加选择模式:', additive);
+            console.log('调用setSelection，选中的元素ID:', selectedElements.map(el => el.id));
+            setSelection(selectedElements.map((el) => el.id), additive);
           } else {
+            console.log('没有选中任何元素，清除选择');
             clearSelection();
           }
-          selectionBox.destroy();
+          selectionBoxRef.current?.destroy();
           selectionBoxRef.current = null;
+          selectionLastPosRef.current = null;
+          isSelectedRef.current = false;
+          selectionStartRef.current = null;
         }
 
         isSelectedRef.current = false;
@@ -1032,8 +1076,18 @@ export const PixiCanvas = () => {
     if (bounds) {
       // 添加边距，确保有足够的滚动空间
       const padding = 1000;
-      const newWidth = Math.max(4000, bounds.x + bounds.width + padding);
-      const newHeight = Math.max(4000, bounds.y + bounds.height + padding);
+      // 计算左侧和上方的负空间需求（处理元素向左/向上超出原点的情况）
+      const leftSpace = Math.max(Math.abs(bounds.x) + padding, padding);
+      const topSpace = Math.max(Math.abs(bounds.y) + padding, padding);
+      // 计算右侧和下方的正空间需求
+      const rightSpace = bounds.width + padding;
+      const bottomSpace = bounds.height + padding;
+      // 总尺寸需要考虑所有四个方向的空间
+      const baseWidth = Math.max(4000, leftSpace + rightSpace);
+      const baseHeight = Math.max(4000, topSpace + bottomSpace);
+      // 考虑缩放比例，调整内容尺寸
+      const newWidth = baseWidth * state.zoom;
+      const newHeight = baseHeight * state.zoom;
       setContentSize((prev) => {
         if (prev.width !== newWidth || prev.height !== newHeight) {
           return { width: newWidth, height: newHeight };
@@ -1042,52 +1096,76 @@ export const PixiCanvas = () => {
       });
     } else {
       // 如果没有元素，使用默认大小
+      const baseSize = 4000;
+      const newSize = baseSize * state.zoom;
       setContentSize((prev) => {
-        if (prev.width !== 4000 || prev.height !== 4000) {
-          return { width: 4000, height: 4000 };
+        if (prev.width !== newSize || prev.height !== newSize) {
+          return { width: newSize, height: newSize };
         }
         return prev;
       });
     }
-  }, [state.elements]); // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源 // 直接驱动 Pixi 容器位置更新，不经过 React state
-
+  }, [state.elements, state.zoom]); // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源
+  // 直接驱动 Pixi 容器位置更新，并同步到 React state
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     const content = contentRef.current;
     const guides = guidesRef.current;
-    if (!scrollContainer || !content) return; // 获取当前滚动位置
+    if (!scrollContainer || !content) return;
 
+    // 获取当前滚动位置
     const scrollX = scrollContainer.scrollLeft;
-    const scrollY = scrollContainer.scrollTop; // 直接更新 Pixi 容器位置（负值，因为滚动向右时内容向左移动）
+    const scrollY = scrollContainer.scrollTop;
 
+    // 直接更新 Pixi 容器位置（负值，因为滚动向右时内容向左移动）
     content.position.set(-scrollX, -scrollY);
     if (guides) {
       guides.position.set(-scrollX, -scrollY);
-    } // 同步更新 stateRef 供其他逻辑使用（如元素拖拽时的坐标计算） // 注意：这里不调用 panBy，避免触发 React 重渲染
+    }
+
+    // 同步更新 stateRef 供其他逻辑使用（如元素拖拽时的坐标计算）
     stateRef.current = {
       ...stateRef.current,
       pan: { x: scrollX, y: scrollY },
     };
-  }, []); // 初始化时同步滚动条位置到 state.pan（只执行一次）
+
+    // 更新 React 状态中的 pan 值，以便持久化到 localStorage
+    // 使用 panBy 来更新状态，这样会保留历史记录
+    panBy({ x: scrollX - state.pan.x, y: scrollY - state.pan.y });
+  }, [state.pan, panBy]); // 初始化时同步滚动条位置到 state.pan（只执行一次）
 
   useEffect(() => {
     if (isInitialized && scrollContainerRef.current) {
       const scrollContainer = scrollContainerRef.current;
       // 注册滚动容器到 CanvasProvider，用于计算视口中心
       registerScrollContainer(scrollContainer);
-      // 如果 state.pan 有初始值，同步到滚动条
-      if (state.pan.x !== 0 || state.pan.y !== 0) {
-        scrollContainer.scrollLeft = state.pan.x;
-        scrollContainer.scrollTop = state.pan.y;
+
+      // 计算初始滚动位置，使画布内容居中
+      const initialScrollLeft = contentSize.width / 2 - scrollContainer.clientWidth / 2;
+      const initialScrollTop = contentSize.height / 2 - scrollContainer.clientHeight / 2;
+
+      // 如果 state.pan 有初始值，使用它；否则使用居中的初始位置
+      const scrollLeft = state.pan.x !== 0 ? state.pan.x : initialScrollLeft;
+      const scrollTop = state.pan.y !== 0 ? state.pan.y : initialScrollTop;
+
+      scrollContainer.scrollLeft = scrollLeft;
+      scrollContainer.scrollTop = scrollTop;
+
+      // 更新 Pixi 容器的初始位置
+      if (contentRef.current) {
+        contentRef.current.position.set(-scrollLeft, -scrollTop);
+      }
+      if (guidesRef.current) {
+        guidesRef.current.position.set(-scrollLeft, -scrollTop);
       }
     }
     // 组件卸载时取消注册
     return () => {
       registerScrollContainer(null);
     };
-    // 只在初始化时执行一次
+    // 只在初始化时执行一次，或内容尺寸变化时重新计算
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized, registerScrollContainer]); // 当元素变化时更新内容尺寸 (使用防抖优化)
+  }, [isInitialized, registerScrollContainer, contentSize]); // 当元素变化时更新内容尺寸 (使用防抖优化)
 
   useEffect(() => {
     // 使用 setTimeout 进行防抖，避免频繁更新
