@@ -639,7 +639,7 @@ export const RightPanel = () => {
   const getGroupChildren = (group: GroupElement): CanvasElement[] => {
     if (!group.children || group.children.length === 0) return []
 
-    let allChildren: CanvasElement[] = []
+    const allChildren: CanvasElement[] = []
 
     const processChildren = (children: CanvasElement[]) => {
       children.forEach(child => {
