@@ -84,25 +84,29 @@ export const CanvasArea = () => {
      * 
      */
     const handleKeyDown = (event: KeyboardEvent) => {
-      // 处理空格键：临时切换到移动模式
-      if (event.code !== "Space" || event.repeat) return
-
-      const activeTag = document.activeElement?.tagName.toLowerCase()
-      if (activeTag === 'input' || activeTag === 'textarea') return
-
-      event.preventDefault()
-
-      // 防止重复触发空格键事件
-      if (spacePressedRef.current) return
-      spacePressedRef.current = true
-      
-      // 如果当前不是移动模式，保存当前模式并切换到移动模式
-      if (modeRef.current !== "pan") {
-        prevModeRef.current = modeRef.current
-        setInteractionMode("pan")
-      } else {
-        // 如果已经是移动模式，则不需要保存之前的模式
-        prevModeRef.current = null
+      // 总是阻止空格键的默认滚动行为
+      if (event.code === "Space") {
+        event.preventDefault();
+        
+        // 仅在非重复触发且非输入框/文本区域时处理模式切换
+        if (!event.repeat) {
+          const activeTag = document.activeElement?.tagName.toLowerCase();
+          if (activeTag !== 'input' && activeTag !== 'textarea') {
+            // 防止重复触发空格键事件
+            if (spacePressedRef.current) return;
+            spacePressedRef.current = true;
+            
+            // 如果当前不是移动模式，保存当前模式并切换到移动模式
+            if (modeRef.current !== "pan") {
+              prevModeRef.current = modeRef.current;
+              setInteractionMode("pan");
+            } else {
+              // 如果已经是移动模式，则不需要保存之前的模式
+              prevModeRef.current = null;
+            }
+          }
+        }
+        return;
       }
     }
 
@@ -118,29 +122,29 @@ export const CanvasArea = () => {
      */
     const handleKeyUp = (event: KeyboardEvent) => {
       // 只处理空格键释放事件
-      if (event.code !== "Space") return
-      event.preventDefault()
+      if (event.code !== "Space") return;
+      event.preventDefault();
       
       // 重置空格键按下状态
-      spacePressedRef.current = false
+      spacePressedRef.current = false;
       
       // 如果之前保存了其他模式，则恢复到该模式
       if (prevModeRef.current) {
-        setInteractionMode(prevModeRef.current)
-        prevModeRef.current = null
+        setInteractionMode(prevModeRef.current);
+        prevModeRef.current = null;
       }
     }
 
     // 添加全局键盘事件监听器
-    window.addEventListener("keydown", handleKeyDown)
-    window.addEventListener("keyup", handleKeyUp)
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
 
     // 清理函数：移除事件监听器，防止内存泄漏
     return () => {
-      window.removeEventListener("keydown", handleKeyDown)
-      window.removeEventListener("keyup", handleKeyUp)
-    }
-  }, [setInteractionMode]) // 依赖项：当这些方法改变时重新绑定事件
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [setInteractionMode]); // 依赖项：当这些方法改变时重新绑定事件
 
   return (
     // 画布区域主容器，占据剩余空间并设置背景样式
@@ -158,3 +162,4 @@ export const CanvasArea = () => {
     </main>
   )
 }
+
