@@ -33,7 +33,7 @@ import { RightClickMenu } from "./RightClickMenu"
 export const PixiCanvas = () => {
   // --- 1. 全局变量声明 ---
   let handleGlobalWheel: ((event: WheelEvent) => void) | null = null;
-  let preventContextMenu: ((e: Event) => void) | null = null; // --- 2. Hooks 和 状态获取 ---
+  const preventContextMenuRef = useRef<((e: Event) => void) | null>(null); // --- 2. Hooks 和 状态获取 ---
 
   const {
     state,
@@ -683,13 +683,6 @@ export const PixiCanvas = () => {
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      if (appRef.current && appRef.current.canvas && preventContextMenu) {
-        appRef.current.canvas.removeEventListener(
-          "contextmenu",
-          preventContextMenu
-        );
-        preventContextMenu = null;
-      }
     };
   }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements]); // --- 13. Effect: 初始化 PixiJS (SETUP) ---
 
@@ -821,7 +814,7 @@ export const PixiCanvas = () => {
         }
       });
 
-      preventContextMenu = (e: Event) => {
+      preventContextMenuRef.current = (e: Event) => {
         e.preventDefault();
       };
 
@@ -837,10 +830,10 @@ export const PixiCanvas = () => {
       };
 
       app.stage.on("rightclick", handleRightClick);
-      if (appRef.current && appRef.current.canvas) {
+      if (appRef.current && appRef.current.canvas && preventContextMenuRef.current) {
         appRef.current.canvas.addEventListener(
           "contextmenu",
-          preventContextMenu
+          preventContextMenuRef.current
         );
       }
 
@@ -1151,6 +1144,11 @@ export const PixiCanvas = () => {
       destroyed = true;
       resizeObserverRef.current?.disconnect();
       const app = appRef.current;
+      // 移除 contextmenu 监听器
+      if (app?.canvas && preventContextMenuRef.current) {
+        app.canvas.removeEventListener("contextmenu", preventContextMenuRef.current);
+        preventContextMenuRef.current = null;
+      }
       app?.stage.removeAllListeners();
       app?.destroy(true);
       registerApp(null);
