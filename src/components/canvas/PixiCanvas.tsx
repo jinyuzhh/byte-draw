@@ -1148,11 +1148,15 @@ export const PixiCanvas = () => {
           background.cursor = "default";
         }
 
-        if (dragRef.current?.moved) {
+        // 无论是否移动，都清除辅助线
+        if (dragRef.current || resizeRef.current) {
           currentGuidesRef.current = [];
           if (guidesRef.current) {
             guidesRef.current.clear();
           }
+        }
+
+        if (dragRef.current?.moved) {
           mutateElements((elements) => elements, {
             historySnapshot: dragRef.current.historySnapshot,
           });
@@ -1164,15 +1168,6 @@ export const PixiCanvas = () => {
           });
         }
 
-        if (resizeRef.current?.moved) {
-          currentGuidesRef.current = [];
-          if (guidesRef.current) {
-            guidesRef.current.clear();
-          }
-          mutateElements((elements) => elements, {
-            historySnapshot: resizeRef.current.historySnapshot,
-          });
-        }
         dragRef.current = null;
         resizeRef.current = null;
         panRef.current = null;
