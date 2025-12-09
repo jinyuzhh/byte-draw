@@ -508,7 +508,11 @@ export interface CanvasContextValue {
   undo: () => void
   redo: () => void
   registerApp: (app: import("pixi.js").Application | null) => void
-  exportAsImage: () => string | null
+  exportAsImage: (options: {
+    format?: 'jpg' | 'png' | 'jpeg' 
+    quality?: number
+    scale?: number
+  }) => string | null
   copy: () => void
   paste: () => void
   /**

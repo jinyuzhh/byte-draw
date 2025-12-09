@@ -1,11 +1,11 @@
-import { useCallback, type ReactNode } from "react"
+import { useState, useCallback, type ReactNode } from "react"
 import { useCanvas } from "../../store/CanvasProvider"
+import { ExportMenu } from "./ExportMenu"
 import {
   MousePointer2,
   Move,
   Undo2,
   Redo2,
-  Download,
   ZoomIn,
   ZoomOut,
 } from "lucide-react"
@@ -46,20 +46,40 @@ export const TopBar = () => {
     exportAsImage,
   } = useCanvas()
 
+  const [isExporting, setIsExporting] = useState(false)
 
-  const handleExport = useCallback(() => {
-    // 获取画布的 Data URL
-    const dataUrl = exportAsImage()
-    if (!dataUrl) return
-    
-    // 创建临时下载链接并设置属性
-    const anchor = document.createElement("a")
-    anchor.href = dataUrl
-    // 使用时间戳确保文件名唯一
-    anchor.download = `canvas-${Date.now()}.png`
-    
-    // 触发下载
-    anchor.click()
+
+  const handleExport = useCallback(async (options: {
+    format: 'jpg' | 'png' | 'jpeg' 
+    quality: number
+    scale: number
+  }) => {
+    setIsExporting(true)
+
+    try {
+      // 获取画布的 Data URL
+      const dataUrl = exportAsImage(options)
+      if (!dataUrl) {
+        alert("导出失败，请重试")
+        return
+      }
+
+      // 创建临时下载链接
+      const anchor = document.createElement("a")
+      anchor.href = dataUrl
+
+      // 根据格式设置文件名
+      const timestamp = Date.now()
+      const fileName = `canvas-${timestamp}.${options.format === 'jpg' ? 'jpeg' : options.format}`
+      anchor.download = fileName
+
+      // 触发下载
+      anchor.click()
+    } catch (error) {
+      alert("导出失败，请重试")
+    } finally {
+      setIsExporting(false)
+    }
   }, [exportAsImage])
 
   return (
@@ -131,14 +151,14 @@ export const TopBar = () => {
         </div>
 
         {/* 导出按钮 */}
-        <button
-          type="button"
-          onClick={handleExport}
-          className="flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-md hover:bg-slate-800 transition-colors"
-        >
-          <Download size={16} />
-          导出
-        </button>
+        <div className="relative">
+          <ExportMenu onExport={handleExport} />
+          {isExporting && (
+            <div className="absolute top-full mt-2 text-xs text-blue-600">
+              正在导出...
+            </div>
+          )}
+        </div>
       </div>
     </header>
   )
