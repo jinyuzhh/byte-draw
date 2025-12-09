@@ -27,13 +27,14 @@ import {
   createShape,
   createSolidBoundsOutline,
   createRotateTooltip,
-} from "./pixiRenderers";
-import { RightClickMenu } from "./RightClickMenu";
+  createArtboard
+} from "./pixiRenderers"
+import { RightClickMenu } from "./RightClickMenu"
 
 export const PixiCanvas = () => {
   // --- 1. 全局变量声明 ---
   let handleGlobalWheel: ((event: WheelEvent) => void) | null = null;
-  let preventContextMenu: ((e: Event) => void) | null = null; // --- 2. Hooks 和 状态获取 ---
+  const preventContextMenuRef = useRef<((e: Event) => void) | null>(null); // --- 2. Hooks 和 状态获取 ---
 
   const {
     state,
@@ -47,6 +48,7 @@ export const PixiCanvas = () => {
     setZoom,
     groupElements,
     ungroupElements,
+    updateArtboard,
   } = useCanvas(); // --- 3. Refs 定义 ---
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -95,23 +97,17 @@ export const PixiCanvas = () => {
   const modifierKeysRef = useRef({ shiftKey: false, metaKey: false, ctrlKey: false });
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
   const selectionLastPosRef = useRef<{ x: number; y: number } | null>(null);
+  // 用于追踪画板尺寸变化
+  const prevArtboardSizeRef = useRef<{ width: number; height: number } | null>(null);
 
-  const [renderPage, setRenderPage] = useState(0);
-  const [hasInitialized, setHasInitialized] = useState(false);
+  const [pixiReady, setPixiReady] = useState(false);
   const [rightClickMenu, setRightClickMenu] = useState({
     isVisible: false,
     x: 0,
     y: 0,
   }); // --- 4. 辅助函数 ---
 
-  const toDeg = (rad: number) => rad * (180 / Math.PI); // --- 5. Effect: 初始化状态标记 ---
-
-  useEffect(() => {
-    if (isInitialized && !hasInitialized && state.elements.length > 0) {
-      setHasInitialized(true);
-      setRenderPage((prev) => prev + 1);
-    }
-  }, [isInitialized, hasInitialized, state.elements.length]); // --- 6. Effect: 同步 stateRef ---
+  const toDeg = (rad: number) => rad * (180 / Math.PI); // --- 5. Effect: 同步 stateRef ---
 
   useEffect(() => {
     stateRef.current = state;
@@ -323,7 +319,8 @@ export const PixiCanvas = () => {
           stateRef.current.elements,
           newBounds,
           direction as "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw",
-          5 / zoom
+          5 / zoom,
+          stateRef.current.artboard
         );
         newBounds = snapResult.snappedBounds;
         guides = snapResult.guides;
@@ -416,55 +413,9 @@ export const PixiCanvas = () => {
       );
     },
     [mutateElements]
-  ); // --- 8. renderElements 定义 (关键修复点：必须在 useEffect 之前) ---
-
-  const renderElements = useCallback(
-    (
-      content: Container,
-      elements: CanvasElement[],
-      currentState: typeof state
-    ) => {
-      content
-        .removeChildren()
-        .forEach((child) => child.destroy({ children: true }));
-      content.sortableChildren = true;
-
-      elements.forEach(async (element) => {
-        const selected = state.selectedIds.includes(element.id);
-        const node = await createShape(
-          element,
-          state.interactionMode,
-          (event) => handleElementPointerDown(event, element.id)
-        );
-        node.zIndex = 1;
-        content.addChild(node);
-
-        if (
-          selected &&
-          currentState.selectedIds.length === 1 &&
-          currentState.interactionMode === "select"
-        ) {
-          const handlesLayer = createResizeHandlesLayer(
-            element,
-            currentState.zoom,
-            resizeRef.current?.direction ?? null,
-            state.selectedIds,
-            handleResizeStart,
-            handleRotateStart
-          );
-          content.addChild(handlesLayer);
-        }
-      });
-    },
-    [
-      handleElementPointerDown,
-      handleResizeStart,
-      handleRotateStart,
-      state.interactionMode,
-      state.selectedIds,
-    ]
-  ); // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
-
+  ); 
+  
+  // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
   useEffect(() => {
     const content = contentRef.current;
     const app = appRef.current;
@@ -473,22 +424,62 @@ export const PixiCanvas = () => {
     content
       .removeChildren()
       .forEach((child) => child.destroy({ children: true }));
-    content.sortableChildren = true; // 1. 渲染元素
+    content.sortableChildren = true;
 
+    // 0. 渲染画板（如果存在）
+    if (state.artboard && state.artboard.visible) {
+      const artboardGraphics = createArtboard(state.artboard, state.zoom)
+      content.addChild(artboardGraphics)
+    }
+
+    // 创建一个带遮罩的容器，用于裁剪元素到画板范围内
+    // 控制框会渲染到 content 层，不受遮罩影响
+    let elementsContainer: Container;
+    
+    if (state.artboard && state.artboard.visible) {
+      // 创建遮罩容器
+      elementsContainer = new Container();
+      elementsContainer.sortableChildren = true;
+      elementsContainer.eventMode = "static";
+      elementsContainer.zIndex = 1;
+      
+      // 创建遮罩图形（与画板形状相同）
+      const mask = new Graphics();
+      mask.rect(
+        state.artboard.x,
+        state.artboard.y,
+        state.artboard.width,
+        state.artboard.height
+      );
+      mask.fill({ color: 0xffffff });
+      
+      // 应用遮罩
+      elementsContainer.mask = mask;
+      content.addChild(mask);
+      content.addChild(elementsContainer);
+    } else {
+      // 没有画板时，元素直接渲染到 content
+      elementsContainer = content;
+    }
+
+    // 1. 渲染元素（到可能被遮罩的容器中）
     state.elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id);
       const node = await createShape(element, state.interactionMode, (event) =>
         handleElementPointerDown(event, element.id)
       );
       node.zIndex = 1;
-      content.addChild(node);
+      elementsContainer.addChild(node);
 
+      // 选中轮廓渲染到 content 层（不受遮罩影响，超出画板部分也显示）
       if (selected) {
         const outline = createSelectionOutline(element);
+        outline.zIndex = 49; // 确保在遮罩容器之上，但在控制手柄之下
         content.addChild(outline);
       }
-    }); // 2. 渲染控制层
+    });
 
+    // 2. 渲染控制层（直接添加到 content，不受遮罩影响）
     if (state.interactionMode === "select" && state.selectedIds.length > 0) {
       const selectedElements = state.elements.filter((el) =>
         state.selectedIds.includes(el.id)
@@ -501,6 +492,7 @@ export const PixiCanvas = () => {
             ...bounds,
             rotation: 0,
           });
+          globalOutline.zIndex = 50; // 确保在遮罩容器之上
           content.addChild(globalOutline);
 
           if (!dragRef.current?.moved) {
@@ -512,6 +504,7 @@ export const PixiCanvas = () => {
               selectedIds: state.selectedIds,
               handleResizeStart,
             });
+            handlesLayer.zIndex = 51; // 确保在轮廓之上
             content.addChild(handlesLayer);
           }
         }
@@ -526,21 +519,26 @@ export const PixiCanvas = () => {
             handleResizeStart,
             handleRotateStart
           );
+          handlesLayer.zIndex = 51; // 确保在遮罩容器之上
           content.addChild(handlesLayer);
         }
       }
-    } // 3. 渲染旋转提示
+    }
 
+    // 3. 渲染旋转提示（直接添加到 content，不受遮罩影响）
     if (rotateRef.current) {
       const el = state.elements.find((e) => e.id === rotateRef.current?.id);
       if (el) {
         const tooltip = createRotateTooltip(el, state.zoom);
         tooltip.zIndex = 100;
         content.addChild(tooltip);
-        rotateRef.current.tooltip = tooltip; // 计算元素中心点（不随旋转变化）
+        rotateRef.current.tooltip = tooltip;
 
+        // 计算元素中心点（不随旋转变化）
         const cx = el.x + el.width / 2;
-        const cy = el.y + el.height / 2; // 计算元素对角线半径，确保tooltip在旋转时始终在元素下方
+        const cy = el.y + el.height / 2;
+
+        // 计算元素对角线半径，确保tooltip在旋转时始终在元素下方
         const boundsRadius = Math.sqrt(
           (el.width / 2) ** 2 + (el.height / 2) ** 2
         );
@@ -555,28 +553,84 @@ export const PixiCanvas = () => {
     state.selectedIds,
     state.interactionMode,
     state.zoom,
+    state.artboard,
     handleElementPointerDown,
     handleResizeStart,
     handleRotateStart,
-    handleSelectionBoxPointerDown, // renderElements, // 可以不依赖这个，因为逻辑已经内联了
-    renderPage,
+    handleSelectionBoxPointerDown,
+    pixiReady, // PixiJS 初始化完成后触发渲染
   ]); // --- 10. Effect: 缩放同步（pan 由 onScroll 驱动，不在这里处理） ---
 
   useEffect(() => {
     const app = appRef.current;
     if (!app) return; // 只处理缩放
     app.stage.scale.set(state.zoom);
-    updateViewportGeometry();
-
-    if (contentRef.current && scrollContainerRef.current) {
-       const scrollX = scrollContainerRef.current.scrollLeft;
-       const scrollY = scrollContainerRef.current.scrollTop;
-       contentRef.current.position.set(-scrollX / state.zoom, -scrollY / state.zoom);
-       if(guidesRef.current) {
-         guidesRef.current.position.set(-scrollX / state.zoom, -scrollY / state.zoom);
-       }
+  }, [state.zoom]); 
+  
+  // --- 10.5. Effect: 画板尺寸变化时自动居中和自适应缩放 ---
+  useEffect(() => {
+    const artboard = state.artboard;
+    if (!artboard || !pixiReady) return;
+    
+    const prevSize = prevArtboardSizeRef.current;
+    const currentWidth = artboard.width;
+    const currentHeight = artboard.height;
+    
+    // 检查画板尺寸是否发生变化
+    if (prevSize && (prevSize.width !== currentWidth || prevSize.height !== currentHeight)) {
+      // 画板尺寸变化了，执行居中和自适应缩放
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) return;
+      
+      const viewportWidth = scrollContainer.clientWidth;
+      const viewportHeight = scrollContainer.clientHeight;
+      
+      // 计算自适应缩放比例，使画板完整显示在视口中
+      // 留出一些边距（例如80%的视口空间用于显示画板）
+      const padding = 0.8;
+      const scaleX = (viewportWidth * padding) / currentWidth;
+      const scaleY = (viewportHeight * padding) / currentHeight;
+      const fitZoom = Math.min(scaleX, scaleY, 1); // 最大缩放为1
+      
+      // 限制缩放比例在合理范围内
+      const clampedZoom = Math.min(3, Math.max(0.25, fitZoom));
+      
+      // 设置新的缩放比例
+      setZoom(clampedZoom);
+      
+      // 计算滚动位置，将画板居中显示在视口中
+      const virtualCanvasSize = 4000;
+      const contentWidth = virtualCanvasSize * clampedZoom;
+      const contentHeight = virtualCanvasSize * clampedZoom;
+      
+      // 滚动位置使得虚拟画布中心（也是画板中心）位于视口中心
+      const newScrollLeft = Math.max(0, (contentWidth / 2) - (viewportWidth / 2));
+      const newScrollTop = Math.max(0, (contentHeight / 2) - (viewportHeight / 2));
+      
+      // 使用 setTimeout 确保 React 状态更新和 contentSize 更新后再设置滚动位置
+      // 延迟 100ms 以确保所有 DOM 更新完成
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft = newScrollLeft;
+          scrollContainerRef.current.scrollTop = newScrollTop;
+          
+          // 同步更新 Pixi 容器位置
+          if (contentRef.current) {
+            contentRef.current.position.set(-newScrollLeft, -newScrollTop);
+          }
+          if (guidesRef.current) {
+            guidesRef.current.position.set(-newScrollLeft, -newScrollTop);
+          }
+        }
+      }, 100);
     }
-  }, [state.zoom]); // --- 11. Effect: 光标样式 ---
+    
+    // 更新 ref 记录当前尺寸
+    prevArtboardSizeRef.current = { width: currentWidth, height: currentHeight };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.artboard?.width, state.artboard?.height, pixiReady, setZoom]);
+  
+  // --- 11. Effect: 光标样式 ---
 
   useEffect(() => {
     const background = backgroundRef.current;
@@ -609,13 +663,6 @@ export const PixiCanvas = () => {
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      if (appRef.current && appRef.current.canvas && preventContextMenu) {
-        appRef.current.canvas.removeEventListener(
-          "contextmenu",
-          preventContextMenu
-        );
-        preventContextMenu = null;
-      }
     };
   }, [state.selectedIds, isGroupSelected, groupElements, ungroupElements]); // --- 13. Effect: 初始化 PixiJS (SETUP) ---
 
@@ -681,9 +728,26 @@ export const PixiCanvas = () => {
       backgroundRef.current = background;
       registerApp(app);
 
-      if (stateRef.current.elements.length > 0) {
-        renderElements(content, stateRef.current.elements, stateRef.current);
+      // 画板居中逻辑：检查画板是否需要居中到虚拟画布中央
+      // 虚拟画布默认大小是 4000x4000
+      const virtualCanvasSize = 4000;
+      if (stateRef.current.artboard) {
+        const artboard = stateRef.current.artboard;
+        const expectedCenterX = (virtualCanvasSize - artboard.width) / 2;
+        const expectedCenterY = (virtualCanvasSize - artboard.height) / 2;
+        
+        // 如果画板位置是 (0, 0) 或者明显偏离中心太多，则重新居中
+        const needsRecenter = 
+          (artboard.x === 0 && artboard.y === 0) || 
+          (artboard.x < 100 && artboard.y < 100);
+        
+        if (needsRecenter) {
+          updateArtboard({ x: expectedCenterX, y: expectedCenterY });
+        }
       }
+
+      // PixiJS 初始化完成，设置状态触发主渲染 useEffect
+      setPixiReady(true);
 
       const resizeObserver = new ResizeObserver(() => {
         app.resize();
@@ -748,7 +812,7 @@ export const PixiCanvas = () => {
         }
       });
 
-      preventContextMenu = (e: Event) => {
+      preventContextMenuRef.current = (e: Event) => {
         e.preventDefault();
       };
 
@@ -764,10 +828,10 @@ export const PixiCanvas = () => {
       };
 
       app.stage.on("rightclick", handleRightClick);
-      if (appRef.current && appRef.current.canvas) {
+      if (appRef.current && appRef.current.canvas && preventContextMenuRef.current) {
         appRef.current.canvas.addEventListener(
           "contextmenu",
-          preventContextMenu
+          preventContextMenuRef.current
         );
       }
 
@@ -888,7 +952,8 @@ export const PixiCanvas = () => {
             dx,
             dy,
             current.snapshot,
-            5 / zoom
+            5 / zoom,
+            stateRef.current.artboard
           );
 
           currentGuidesRef.current = guides;
@@ -1037,11 +1102,15 @@ export const PixiCanvas = () => {
           background.cursor = "default";
         }
 
-        if (dragRef.current?.moved) {
+        // 无论是否移动，都清除辅助线
+        if (dragRef.current || resizeRef.current) {
           currentGuidesRef.current = [];
           if (guidesRef.current) {
             guidesRef.current.clear();
           }
+        }
+
+        if (dragRef.current?.moved) {
           mutateElements((elements) => elements, {
             historySnapshot: dragRef.current.historySnapshot,
           });
@@ -1053,15 +1122,6 @@ export const PixiCanvas = () => {
           });
         }
 
-        if (resizeRef.current?.moved) {
-          currentGuidesRef.current = [];
-          if (guidesRef.current) {
-            guidesRef.current.clear();
-          }
-          mutateElements((elements) => elements, {
-            historySnapshot: resizeRef.current.historySnapshot,
-          });
-        }
         dragRef.current = null;
         resizeRef.current = null;
         panRef.current = null;
@@ -1077,6 +1137,11 @@ export const PixiCanvas = () => {
       destroyed = true;
       resizeObserverRef.current?.disconnect();
       const app = appRef.current;
+      // 移除 contextmenu 监听器
+      if (app?.canvas && preventContextMenuRef.current) {
+        app.canvas.removeEventListener("contextmenu", preventContextMenuRef.current);
+        preventContextMenuRef.current = null;
+      }
       app?.stage.removeAllListeners();
       app?.destroy(true);
       registerApp(null);
@@ -1095,7 +1160,6 @@ export const PixiCanvas = () => {
     registerApp,
     performResize,
     setSelection,
-    renderPage,
   ]);
 
   const menuItems = [
@@ -1125,42 +1189,22 @@ export const PixiCanvas = () => {
   const [contentSize, setContentSize] = useState({ width: 4000, height: 4000 }); // 更新内容尺寸
 
   const updateContentSize = useCallback(() => {
-    // 计算所有元素的边界框
-    const bounds = getBoundingBox(state.elements);
-    if (bounds) {
-      // 添加边距，确保有足够的滚动空间
-      const padding = 1000;
-      // 计算左侧和上方的负空间需求（处理元素向左/向上超出原点的情况）
-      const leftSpace = Math.max(Math.abs(bounds.x) + padding, padding);
-      const topSpace = Math.max(Math.abs(bounds.y) + padding, padding);
-      // 计算右侧和下方的正空间需求
-      const rightSpace = bounds.width + padding;
-      const bottomSpace = bounds.height + padding;
-      // 总尺寸需要考虑所有四个方向的空间
-      const baseWidth = Math.max(4000, leftSpace + rightSpace);
-      const baseHeight = Math.max(4000, topSpace + bottomSpace);
-      // 考虑缩放比例，调整内容尺寸
-      const newWidth = baseWidth * state.zoom;
-      const newHeight = baseHeight * state.zoom;
-      setContentSize((prev) => {
-        if (prev.width !== newWidth || prev.height !== newHeight) {
-          return { width: newWidth, height: newHeight };
-        }
-        return prev;
-      });
-    } else {
-      // 如果没有元素，使用默认大小
-      const baseSize = 4000;
-      const newSize = baseSize * state.zoom;
-      setContentSize((prev) => {
-        if (prev.width !== newSize || prev.height !== newSize) {
-          return { width: newSize, height: newSize };
-        }
-        return prev;
-      });
-    }
-  }, [state.elements, state.zoom]); // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源
+    // 始终使用固定的虚拟画布大小，保持稳定性
+    // 画板位于虚拟画布中心，不需要动态调整
+    const baseSize = 4000;
+    const newSize = baseSize * state.zoom;
+    setContentSize((prev) => {
+      if (prev.width !== newSize || prev.height !== newSize) {
+        return { width: newSize, height: newSize };
+      }
+      return prev;
+    });
+  }, [state.zoom]); // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源
   // 直接驱动 Pixi 容器位置更新，并同步到 React state
+  
+  // 追踪是否已完成初始滚动位置设置
+  const initialScrollSetRef = useRef(false);
+  
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     const content = contentRef.current;
@@ -1188,44 +1232,52 @@ export const PixiCanvas = () => {
       pan: { x: scrollX, y: scrollY },
     };
 
-    // 更新 React 状态中的 pan 值，以便持久化到 localStorage
-    // 使用 panBy 来更新状态，这样会保留历史记录
-    panBy({ x: scrollX - state.pan.x, y: scrollY - state.pan.y });
-  }, [state.pan, panBy]); // 初始化时同步滚动条位置到 state.pan（只执行一次）
-
+    // 只有在初始化完成后才更新 React 状态中的 pan 值
+    // 避免初始化期间触发不必要的重渲染
+    if (initialScrollSetRef.current) {
+      panBy({ x: scrollX - state.pan.x, y: scrollY - state.pan.y });
+    }
+  }, [state.pan, panBy]);
+  
+  // 初始化时同步滚动条位置，将画板居中显示
   useEffect(() => {
-    if (isInitialized && scrollContainerRef.current) {
+    // 已经设置过初始滚动位置，跳过
+    if (initialScrollSetRef.current) return;
+    
+    if (isInitialized && scrollContainerRef.current && pixiReady) {
       const scrollContainer = scrollContainerRef.current;
       // 注册滚动容器到 CanvasProvider，用于计算视口中心
       registerScrollContainer(scrollContainer);
 
-      // 计算初始滚动位置，使画布内容居中
-      const initialScrollLeft = contentSize.width / 2 - scrollContainer.clientWidth / 2;
-      const initialScrollTop = contentSize.height / 2 - scrollContainer.clientHeight / 2;
-
-      // 如果 state.pan 有初始值，使用它；否则使用居中的初始位置
-      const scrollLeft = state.pan.x !== 0 ? state.pan.x : initialScrollLeft;
-      const scrollTop = state.pan.y !== 0 ? state.pan.y : initialScrollTop;
-
-      scrollContainer.scrollLeft = scrollLeft;
-      scrollContainer.scrollTop = scrollTop;
-
-      // 更新 Pixi 容器的初始位置（需要除以缩放因子）
-      const zoom = state.zoom;
+      // 始终将画板居中显示
+      // 虚拟画布大小是 4000x4000，画板中心在 (2000, 2000)
+      // 滚动位置应该使画板中心位于视口中心
+      const virtualCanvasCenter = 2000 * state.zoom;
+      const viewportWidth = scrollContainer.clientWidth;
+      const viewportHeight = scrollContainer.clientHeight;
+      
+      const initialScrollLeft = Math.max(0, virtualCanvasCenter - viewportWidth / 2);
+      const initialScrollTop = Math.max(0, virtualCanvasCenter - viewportHeight / 2);
+      
+      scrollContainer.scrollLeft = initialScrollLeft;
+      scrollContainer.scrollTop = initialScrollTop;
+      
+      // 更新 Pixi 容器的初始位置
       if (contentRef.current) {
-        contentRef.current.position.set(-scrollLeft / zoom, -scrollTop / zoom);
+        contentRef.current.position.set(-initialScrollLeft, -initialScrollTop);
       }
       if (guidesRef.current) {
-        guidesRef.current.position.set(-scrollLeft / zoom, -scrollTop / zoom);
+        guidesRef.current.position.set(-initialScrollLeft, -initialScrollTop);
       }
+      
+      // 标记初始滚动位置已设置
+      initialScrollSetRef.current = true;
     }
     // 组件卸载时取消注册
     return () => {
       registerScrollContainer(null);
     };
-    // 只在初始化时执行一次，或内容尺寸变化时重新计算
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized, registerScrollContainer, contentSize]); // 当元素变化时更新内容尺寸 (使用防抖优化)
+  }, [isInitialized, registerScrollContainer, pixiReady, state.zoom]); // 当元素变化时更新内容尺寸 (使用防抖优化)
 
   useEffect(() => {
     // 使用 setTimeout 进行防抖，避免频繁更新
