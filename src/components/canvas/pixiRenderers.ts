@@ -133,7 +133,7 @@ export const createShape = async (
         stroke.stroke({
           width: safeStrokeWidth,
           color: strokeColor,
-          alignment: 0.5,  // 改为居中对齐，描边一半在内一半在外
+          alignment: 1,  
           join: "round",
         })
         container.addChild(stroke)
