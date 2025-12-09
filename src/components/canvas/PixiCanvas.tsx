@@ -293,7 +293,8 @@ export const PixiCanvas = () => {
           stateRef.current.elements,
           newBounds,
           direction as "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw",
-          5 / zoom
+          5 / zoom,
+          stateRef.current.artboard
         );
         newBounds = snapResult.snappedBounds;
         guides = snapResult.guides;
@@ -960,7 +961,8 @@ export const PixiCanvas = () => {
             dx,
             dy,
             current.snapshot,
-            5 / zoom
+            5 / zoom,
+            stateRef.current.artboard
           );
 
           currentGuidesRef.current = guides;
