@@ -22,11 +22,31 @@
  * @version 1.0.0
  */
 
+import { lazy, Suspense } from "react"
 import { CanvasProvider } from "./store/CanvasProvider"
+// 🚀 LCP 优化：TopBar 是 LCP 元素，不使用懒加载
 import { TopBar } from "./components/layout/TopBar"
-import { LeftPanel } from "./components/layout/LeftPanel"
-import { CanvasArea } from "./components/layout/CanvasArea"
-import { RightPanel } from "./components/layout/RightPanel"
+
+// 懒加载非关键组件 - 优化首屏加载时间
+const LeftPanel = lazy(() => import("./components/panels/LeftPanel").then(m => ({ default: m.LeftPanel })))
+// 🚀 LCP 优化：预加载 CanvasArea（可能是 LCP 元素）
+const CanvasArea = lazy(() => {
+  // 使用 requestIdleCallback 在空闲时预加载
+  const modulePromise = import("./components/layout/CanvasArea")
+  return modulePromise.then(m => ({ default: m.CanvasArea }))
+})
+const RightPanel = lazy(() => import("./components/panels/RightPanel").then(m => ({ default: m.RightPanel })))
+
+// 加载占位组件 - 减少 CLS
+const PanelSkeleton = ({ width }: { width: string }) => (
+  <div className={`${width} bg-white/60 animate-pulse`} />
+)
+
+const CanvasSkeleton = () => (
+  <div className="flex-1 bg-slate-100 animate-pulse flex items-center justify-center">
+    <div className="text-slate-400 text-sm">加载画布中...</div>
+  </div>
+)
 
 /**
  * 应用程序根组件
@@ -97,7 +117,9 @@ const App = () => (
           - 包含形状工具、文本工具、图片工具等
           - 固定宽度，可折叠
         */}
-        <LeftPanel />
+        <Suspense fallback={<PanelSkeleton width="w-72" />}>
+          <LeftPanel />
+        </Suspense>
         
         {/* 
           画布区域：
@@ -105,14 +127,18 @@ const App = () => (
           - 占据中间的主要空间
           - 包含 PIXI.js 渲染的画布
         */}
-        <CanvasArea />
+        <Suspense fallback={<CanvasSkeleton />}>
+          <CanvasArea />
+        </Suspense>
         
         {/* 
           右侧属性面板：
           - 显示和编辑选中元素的属性
           - 固定宽度，可折叠
         */}
-        <RightPanel />
+        <Suspense fallback={<PanelSkeleton width="w-72" />}>
+          <RightPanel />
+        </Suspense>
       </div>
     </div>
   </CanvasProvider>

@@ -560,4 +560,14 @@ export interface CanvasContextValue {
    * @param {string} color - 画板背景颜色（CSS颜色值）
    */
   updateArtboardColor: (color: string) => void
+   /* 注册滚动容器引用
+   * 
+   * @function registerScrollContainer
+   * @param {HTMLDivElement | null} container - 滚动容器DOM元素
+   * 
+   * @description 
+   * 注册滚动容器DOM元素，用于获取当前滚动位置来计算视口中心。
+   * 这使得添加新元素时可以将其放置在当前可见视口的中心位置。
+   */
+  registerScrollContainer: (container: HTMLDivElement | null) => void
 }
