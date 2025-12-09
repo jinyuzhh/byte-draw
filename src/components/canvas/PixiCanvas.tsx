@@ -4,6 +4,7 @@ import {
   Container,
   Graphics,
   FederatedPointerEvent,
+  Rectangle
 } from "pixi.js";
 import { useCanvas } from "../../store/CanvasProvider";
 import type { CanvasElement, GroupElement } from "../../types/canvas";
@@ -145,6 +146,31 @@ export const PixiCanvas = () => {
     },
     []
   );
+  // --- 统一的背景更新函数 ---
+  const updateViewportGeometry = useCallback(() => {
+    const app = appRef.current;
+    const background = backgroundRef.current;
+    if (!app || !background) return;
+
+    const zoom = state.zoom;
+    const screenWidth = app.screen.width;
+    const screenHeight = app.screen.height;
+
+    // 计算反向缩放后的尺寸
+    const worldWidth = screenWidth / zoom;
+    const worldHeight = screenHeight / zoom;
+
+    // 1. 重绘背景 (用于接收平移/框选事件)
+    background.clear();
+    background.rect(0, 0, worldWidth, worldHeight);
+    background.fill({ color: 0xffffff, alpha: 0 });
+    
+    // 2. 更新 HitArea (用于接收所有指针事件)
+    const hitArea = new Rectangle(0, 0, worldWidth, worldHeight);
+    background.hitArea = hitArea;
+    app.stage.hitArea = hitArea; 
+
+  }, [state.zoom]);
 
   const handleResizeStart = useCallback(
     (
@@ -540,6 +566,16 @@ export const PixiCanvas = () => {
     const app = appRef.current;
     if (!app) return; // 只处理缩放
     app.stage.scale.set(state.zoom);
+    updateViewportGeometry();
+
+    if (contentRef.current && scrollContainerRef.current) {
+       const scrollX = scrollContainerRef.current.scrollLeft;
+       const scrollY = scrollContainerRef.current.scrollTop;
+       contentRef.current.position.set(-scrollX / state.zoom, -scrollY / state.zoom);
+       if(guidesRef.current) {
+         guidesRef.current.position.set(-scrollX / state.zoom, -scrollY / state.zoom);
+       }
+    }
   }, [state.zoom]); // --- 11. Effect: 光标样式 ---
 
   useEffect(() => {
@@ -589,11 +625,19 @@ export const PixiCanvas = () => {
     const updateBackground = () => {
       const app = appRef.current;
       const background = backgroundRef.current;
+      const zoom = stateRef.current.zoom;
       if (!app || !background) return;
       background.clear();
+
+      const viewportWidth = app.screen.width / zoom;
+      const viewportHeight = app.screen.height / zoom;
+
       background.rect(0, 0, app.screen.width, app.screen.height);
       background.fill({ color: 0xffffff, alpha: 0 });
-      background.hitArea = app.screen;
+
+      const hitRect = new Rectangle(0, 0, viewportWidth, viewportHeight);
+      background.hitArea = hitRect;
+      app.stage.hitArea = hitRect; // 确保拖拽出背景时只要在屏幕内也能响应
     };
 
     const setup = async () => {
@@ -643,14 +687,24 @@ export const PixiCanvas = () => {
 
       const resizeObserver = new ResizeObserver(() => {
         app.resize();
+        updateViewportGeometry();
         updateBackground(); // 确保画布大小变化后，缩放比例仍然正确应用
         if (contentRef.current && stateRef.current) {
           const content = contentRef.current; // 重新应用平移和缩放
+          const zoom = stateRef.current.zoom;
+          // content 位置需要除以缩放因子，因为 stage 的 scale 会应用到 position 上
           content.position.set(
-            -stateRef.current.pan.x,
-            -stateRef.current.pan.y
+            -stateRef.current.pan.x / zoom,
+            -stateRef.current.pan.y / zoom
           );
-          app.stage.scale.set(stateRef.current.zoom);
+          // guides 容器也需要同样的位置更新
+          if (guidesRef.current) {
+            guidesRef.current.position.set(
+              -stateRef.current.pan.x / zoom,
+              -stateRef.current.pan.y / zoom
+            );
+          }
+          app.stage.scale.set(zoom);
         }
       });
       resizeObserver.observe(wrapperRef.current);
@@ -1117,10 +1171,15 @@ export const PixiCanvas = () => {
     const scrollX = scrollContainer.scrollLeft;
     const scrollY = scrollContainer.scrollTop;
 
+    // 获取当前缩放值
+    const zoom = stateRef.current.zoom;
+
     // 直接更新 Pixi 容器位置（负值，因为滚动向右时内容向左移动）
-    content.position.set(-scrollX, -scrollY);
+    // 需要除以缩放因子，因为 stage 的 scale 会应用到 content 的 position 上
+    // 这样实际的屏幕偏移才会正确匹配滚动位置
+    content.position.set(-scrollX / zoom, -scrollY / zoom);
     if (guides) {
-      guides.position.set(-scrollX, -scrollY);
+      guides.position.set(-scrollX / zoom, -scrollY / zoom);
     }
 
     // 同步更新 stateRef 供其他逻辑使用（如元素拖拽时的坐标计算）
@@ -1151,12 +1210,13 @@ export const PixiCanvas = () => {
       scrollContainer.scrollLeft = scrollLeft;
       scrollContainer.scrollTop = scrollTop;
 
-      // 更新 Pixi 容器的初始位置
+      // 更新 Pixi 容器的初始位置（需要除以缩放因子）
+      const zoom = state.zoom;
       if (contentRef.current) {
-        contentRef.current.position.set(-scrollLeft, -scrollTop);
+        contentRef.current.position.set(-scrollLeft / zoom, -scrollTop / zoom);
       }
       if (guidesRef.current) {
-        guidesRef.current.position.set(-scrollLeft, -scrollTop);
+        guidesRef.current.position.set(-scrollLeft / zoom, -scrollTop / zoom);
       }
     }
     // 组件卸载时取消注册
