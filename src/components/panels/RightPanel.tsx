@@ -235,43 +235,96 @@ const ArtboardSizeSelector = ({
   onWidthChange: (value: number) => void;
   onHeightChange: (value: number) => void;
 }) => {
-  const [customWidth, setCustomWidth] = React.useState(width);
-  const [customHeight, setCustomHeight] = React.useState(height);
+  const [customWidth, setCustomWidth] = React.useState(String(width));
+  const [customHeight, setCustomHeight] = React.useState(String(height));
+  const widthInputRef = React.useRef<HTMLInputElement>(null);
+  const heightInputRef = React.useRef<HTMLInputElement>(null);
 
-  // 同步外部值到自定义输入
+  // 同步外部值到自定义输入（仅当输入框未聚焦时）
   React.useEffect(() => {
-    setCustomWidth(width);
-    setCustomHeight(height);
-  }, [width, height]);
+    if (document.activeElement !== widthInputRef.current) {
+      setCustomWidth(String(width));
+    }
+  }, [width]);
+
+  React.useEffect(() => {
+    if (document.activeElement !== heightInputRef.current) {
+      setCustomHeight(String(height));
+    }
+  }, [height]);
+
+  const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 允许任意输入，不做实时校验
+    setCustomWidth(e.target.value);
+  };
+
+  const handleHeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 允许任意输入，不做实时校验
+    setCustomHeight(e.target.value);
+  };
+
+  const handleWidthBlur = () => {
+    const parsed = parseInt(customWidth, 10);
+    if (Number.isNaN(parsed) || parsed < 100) {
+      // 非法输入或小于最小值，恢复为当前值
+      setCustomWidth(String(width));
+    } else {
+      const clamped = Math.min(4096, parsed);
+      setCustomWidth(String(clamped));
+      if (clamped !== width) {
+        onWidthChange(clamped);
+      }
+    }
+  };
+
+  const handleHeightBlur = () => {
+    const parsed = parseInt(customHeight, 10);
+    if (Number.isNaN(parsed) || parsed < 100) {
+      // 非法输入或小于最小值，恢复为当前值
+      setCustomHeight(String(height));
+    } else {
+      const clamped = Math.min(4096, parsed);
+      setCustomHeight(String(clamped));
+      if (clamped !== height) {
+        onHeightChange(clamped);
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, type: 'width' | 'height') => {
+    if (e.key === 'Enter') {
+      if (type === 'width') {
+        widthInputRef.current?.blur();
+      } else {
+        heightInputRef.current?.blur();
+      }
+    }
+  };
 
   return (
     <div className="space-y-3">
       {/* 自定义尺寸输入 */}
       <div className="flex items-center gap-2">
         <input
-          type="number"
+          ref={widthInputRef}
+          type="text"
+          inputMode="numeric"
           value={customWidth}
-          onChange={(e) => {
-            const val = Math.max(100, Math.min(4096, Number(e.target.value)));
-            setCustomWidth(val);
-            onWidthChange(val);
-          }}
+          onChange={handleWidthChange}
+          onBlur={handleWidthBlur}
+          onKeyDown={(e) => handleKeyDown(e, 'width')}
           className="w-20 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none text-center"
-          min={100}
-          max={4096}
         />
         <span className="text-slate-400">×</span>
         <input
-          type="number"
+          ref={heightInputRef}
+          type="text"
+          inputMode="numeric"
           value={customHeight}
-          onChange={(e) => {
-            const val = Math.max(100, Math.min(4096, Number(e.target.value)));
-            setCustomHeight(val);
-            onHeightChange(val);
-          }}
+          onChange={handleHeightChange}
+          onBlur={handleHeightBlur}
+          onKeyDown={(e) => handleKeyDown(e, 'height')}
           className="w-20 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none text-center"
-          min={100}
-          max={4096}
         />
         <span className="text-xs text-slate-400">px</span>
       </div>
