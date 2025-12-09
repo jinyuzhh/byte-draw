@@ -388,6 +388,28 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   }, [state.zoom, state.pan])
 
   /**
+   * 获取画板中心的画布坐标
+   * 
+   * @function getArtboardCenter
+   * @returns {{ x: number, y: number }} 画板中心的画布坐标
+   * 
+   * @description 
+   * 返回画板中心位置，如果没有画板则回退到视口中心
+   */
+  const getArtboardCenter = useCallback(() => {
+    const artboard = state.artboard
+    if (artboard && artboard.visible) {
+      // 计算画板中心位置
+      return {
+        x: artboard.x + artboard.width / 2,
+        y: artboard.y + artboard.height / 2,
+      }
+    }
+    // 如果没有画板，回退到视口中心
+    return getViewportCenter()
+  }, [state.artboard, getViewportCenter])
+
+  /**
    * 更新元素列表的核心方法
    * 
    * @function mutateElements
@@ -534,14 +556,14 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       const id = createId()
       // 根据形状类型设置默认尺寸
       const size = shape === "rectangle" ? { width: 220, height: 140 } : { width: 160, height: 160 }
-      // 计算视口中心位置，将元素放置在中心
-      const viewportCenter = getViewportCenter()
+      // 计算画板中心位置，将元素放置在中心
+      const center = getArtboardCenter()
       const element: CanvasElement = {
         id,
         type: "shape",
         name: `${shape} ${state.elements.length + 1}`,
-        x: viewportCenter.x - size.width / 2,
-        y: viewportCenter.y - size.height / 2,
+        x: center.x - size.width / 2,
+        y: center.y - size.height / 2,
         width: size.width,
         height: size.height,
         rotation: 0,
@@ -560,7 +582,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length, getViewportCenter]
+    [mutateElements, state.elements.length, getArtboardCenter]
   )
 
   /**
@@ -579,16 +601,16 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const addText = useCallback(
     (text = "双击编辑文本") => {
       const id = createId()
-      // 计算视口中心位置，将元素放置在中心
-      const viewportCenter = getViewportCenter()
+      // 计算画板中心位置，将元素放置在中心
+      const center = getArtboardCenter()
       const width = 260
       const height = 80
       const element: CanvasElement = {
         id,
         type: "text",
         name: `文本 ${state.elements.length + 1}`,
-        x: viewportCenter.x - width / 2,
-        y: viewportCenter.y - height / 2,
+        x: center.x - width / 2,
+        y: center.y - height / 2,
         width,
         height,
         rotation: 0,
@@ -609,7 +631,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length, getViewportCenter]
+    [mutateElements, state.elements.length, getArtboardCenter]
   )
 
   /**
@@ -631,8 +653,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const addImage = useCallback(
     (src: string, size?: { width: number; height: number }) => {
       const id = createId()
-      // 计算视口中心位置，将元素放置在中心
-      const viewportCenter = getViewportCenter()
+      // 计算画板中心位置，将元素放置在中心
+      const center = getArtboardCenter()
       // 使用传入的尺寸或默认尺寸
       const width = size?.width ?? 240
       const height = size?.height ?? 160
@@ -640,8 +662,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         id,
         type: "image",
         name: `图片 ${state.elements.length + 1}`,
-        x: viewportCenter.x - width / 2,
-        y: viewportCenter.y - height / 2,
+        x: center.x - width / 2,
+        y: center.y - height / 2,
         width,
         height,
         rotation: 0,
@@ -662,7 +684,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length, getViewportCenter]
+    [mutateElements, state.elements.length, getArtboardCenter]
   )
 
   /**

@@ -8,7 +8,7 @@ export default {
     extend: {
       colors: {
         canvas: {
-          background: "#f4f7fb",
+          background: "#e5e7eb",
           panel: "#ffffff",
           border: "#dbe1ef",
           accent: "#2d5bff",

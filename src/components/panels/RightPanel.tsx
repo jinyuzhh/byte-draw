@@ -223,6 +223,14 @@ const PRESET_COLORS = [
   '#fff1f2', '#ffe4e6', '#fecdd3', '#fda4af', '#fb7185', '#f43f5e', '#e11d48', '#be123c', '#9f1239', '#881337',
 ];
 
+// 预设画板尺寸
+const PRESET_SIZES = [
+  { name: '竖版视频封面', ratio: '3:4', width: 1242, height: 1656 },
+  { name: '竖版视频封面', ratio: '9:16', width: 1080, height: 1920 },
+  { name: '横版视频封面', ratio: '16:9', width: 1920, height: 1080 },
+  { name: '横版海报', ratio: '16:9', width: 1800, height: 1000 },
+];
+
 // 画板尺寸选择器组件
 const ArtboardSizeSelector = ({
   width,
@@ -240,6 +248,13 @@ const ArtboardSizeSelector = ({
   const widthInputRef = React.useRef<HTMLInputElement>(null);
   const heightInputRef = React.useRef<HTMLInputElement>(null);
 
+  // 检查当前尺寸是否匹配某个预设
+  const isPresetSelected = (preset: typeof PRESET_SIZES[0]) => {
+    return width === preset.width && height === preset.height;
+  };
+
+  const isCustomSelected = !PRESET_SIZES.some(isPresetSelected);
+
   // 同步外部值到自定义输入（仅当输入框未聚焦时）
   React.useEffect(() => {
     if (document.activeElement !== widthInputRef.current) {
@@ -254,19 +269,16 @@ const ArtboardSizeSelector = ({
   }, [height]);
 
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // 允许任意输入，不做实时校验
     setCustomWidth(e.target.value);
   };
 
   const handleHeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // 允许任意输入，不做实时校验
     setCustomHeight(e.target.value);
   };
 
   const handleWidthBlur = () => {
     const parsed = parseInt(customWidth, 10);
     if (Number.isNaN(parsed) || parsed < 100) {
-      // 非法输入或小于最小值，恢复为当前值
       setCustomWidth(String(width));
     } else {
       const clamped = Math.min(4096, parsed);
@@ -280,7 +292,6 @@ const ArtboardSizeSelector = ({
   const handleHeightBlur = () => {
     const parsed = parseInt(customHeight, 10);
     if (Number.isNaN(parsed) || parsed < 100) {
-      // 非法输入或小于最小值，恢复为当前值
       setCustomHeight(String(height));
     } else {
       const clamped = Math.min(4096, parsed);
@@ -301,33 +312,74 @@ const ArtboardSizeSelector = ({
     }
   };
 
+  const handlePresetClick = (preset: typeof PRESET_SIZES[0]) => {
+    onWidthChange(preset.width);
+    onHeightChange(preset.height);
+  };
+
   return (
     <div className="space-y-3">
-      {/* 自定义尺寸输入 */}
-      <div className="flex items-center gap-2">
-        <input
-          ref={widthInputRef}
-          type="text"
-          inputMode="numeric"
-          value={customWidth}
-          onChange={handleWidthChange}
-          onBlur={handleWidthBlur}
-          onKeyDown={(e) => handleKeyDown(e, 'width')}
-          className="w-20 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none text-center"
-        />
-        <span className="text-slate-400">×</span>
-        <input
-          ref={heightInputRef}
-          type="text"
-          inputMode="numeric"
-          value={customHeight}
-          onChange={handleHeightChange}
-          onBlur={handleHeightBlur}
-          onKeyDown={(e) => handleKeyDown(e, 'height')}
-          className="w-20 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none text-center"
-        />
-        <span className="text-xs text-slate-400">px</span>
+      {/* 自定义尺寸选项 */}
+      <div 
+        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+          isCustomSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'
+        }`}
+      >
+        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+          isCustomSelected ? 'border-blue-500' : 'border-slate-300'
+        }`}>
+          {isCustomSelected && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+        </div>
+        <span className="text-sm text-slate-700 min-w-[48px]">自定义</span>
+        <div className="flex items-center gap-1">
+          <input
+            ref={widthInputRef}
+            type="text"
+            inputMode="numeric"
+            value={customWidth}
+            onChange={handleWidthChange}
+            onBlur={handleWidthBlur}
+            onKeyDown={(e) => handleKeyDown(e, 'width')}
+            className="w-14 px-1.5 py-0.5 text-sm border border-canvas-border rounded focus:border-canvas-accent focus:outline-none text-center"
+          />
+          <span className="text-slate-400 text-xs">×</span>
+          <input
+            ref={heightInputRef}
+            type="text"
+            inputMode="numeric"
+            value={customHeight}
+            onChange={handleHeightChange}
+            onBlur={handleHeightBlur}
+            onKeyDown={(e) => handleKeyDown(e, 'height')}
+            className="w-14 px-1.5 py-0.5 text-sm border border-canvas-border rounded focus:border-canvas-accent focus:outline-none text-center"
+          />
+          <span className="text-xs text-slate-400">px</span>
+        </div>
       </div>
+
+      {/* 预设尺寸列表 */}
+      {PRESET_SIZES.map((preset, index) => {
+        const selected = isPresetSelected(preset);
+        return (
+          <div
+            key={index}
+            onClick={() => handlePresetClick(preset)}
+            className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
+              selected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                selected ? 'border-blue-500' : 'border-slate-300'
+              }`}>
+                {selected && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+              </div>
+              <span className="text-sm text-slate-700">{preset.name}（{preset.ratio}）</span>
+            </div>
+            <span className="text-xs text-slate-400">{preset.width} × {preset.height} px</span>
+          </div>
+        );
+      })}
     </div>
   );
 };
