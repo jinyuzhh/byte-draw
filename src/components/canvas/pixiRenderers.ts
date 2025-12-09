@@ -101,17 +101,25 @@ export const createShape = async (
       }
     }
 
+    // 创建一个内部容器用于填充，这个容器会被 mask 裁剪
+    const fillContainer = new Container()
+    
     drawPath(mask)
     mask.fill({ color: 0xffffff, alpha: 1 })
     mask.alpha = 0
     mask.eventMode = "none"
-    container.addChild(mask)
-    container.mask = mask
+    fillContainer.addChild(mask)
+    fillContainer.mask = mask
 
     drawPath(fill)
     fill.fill({ color: fillColor, alpha: 1 })
-    container.addChild(fill)
+    fillContainer.addChild(fill)
+    
+    // 将填充容器添加到主容器
+    container.addChild(fillContainer)
 
+    // 描边单独添加到主容器，不受 mask 影响
+    // 这样描边（尤其是外侧对齐的描边）不会被裁剪
     if (element.strokeWidth > 0) {
       drawPath(stroke)
       const halfMinSize =
@@ -125,7 +133,7 @@ export const createShape = async (
         stroke.stroke({
           width: safeStrokeWidth,
           color: strokeColor,
-          alignment: 1,
+          alignment: 0.5,  // 改为居中对齐，描边一半在内一半在外
           join: "round",
         })
         container.addChild(stroke)
