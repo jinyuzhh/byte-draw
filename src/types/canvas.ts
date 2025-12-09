@@ -337,6 +337,7 @@ export interface Artboard {
   width: number
   height: number
   backgroundColor: string
+  opacity: number
   visible: boolean
 }
 
@@ -560,7 +561,31 @@ export interface CanvasContextValue {
    * @param {string} color - 画板背景颜色（CSS颜色值）
    */
   updateArtboardColor: (color: string) => void
-   /* 注册滚动容器引用
+
+  /**
+   * 更新画板属性
+   * 
+   * @function updateArtboard
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   */
+  updateArtboard: (changes: Partial<Artboard>) => void
+
+  /**
+   * 更新画板属性并自适应缩放居中显示
+   * 
+   * @function updateArtboardWithFit
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   * 
+   * @description 
+   * 更新画板属性（尤其是尺寸），并执行以下操作：
+   * 1. 重新计算画板位置，使其居中于虚拟画布（4000x4000）
+   * 2. 计算合适的缩放比例，使画板完整显示在视口中
+   * 3. 调整滚动位置，将画板居中于视口
+   */
+  updateArtboardWithFit: (changes: Partial<Artboard>) => void
+
+  /**
+   * 注册滚动容器引用
    * 
    * @function registerScrollContainer
    * @param {HTMLDivElement | null} container - 滚动容器DOM元素

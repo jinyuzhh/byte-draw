@@ -78,11 +78,15 @@ const baseState: CanvasState = {
   history: [],
   redoStack: [],
   artboard: {
-    x: 100,
-    y: 100,
+    // 画板位于虚拟画布(4000x4000)的中心
+    // x = virtualCenter - width/2 = 2000 - 400 = 1600
+    // y = virtualCenter - height/2 = 2000 - 300 = 1700
+    x: 1600,
+    y: 1700,
     width: 800,
     height: 600,
     backgroundColor: "#ffffff",
+    opacity: 1,
     visible: true
   },
 }
@@ -119,7 +123,17 @@ const getInitialState = (): CanvasState => {
           : fallback.pan,
       zoom: typeof parsed?.zoom === "number" ? parsed.zoom : fallback.zoom,
       interactionMode: parsed?.interactionMode || fallback.interactionMode,
-      artboard: parsed?.artboard ?? fallback.artboard,
+      // 合并画板属性，确保新增的 opacity 属性有默认值
+      // 同时重新计算画板位置，使其居中于虚拟画布 (4000x4000)
+      artboard: parsed?.artboard 
+        ? {
+            ...fallback.artboard,
+            ...parsed.artboard,
+            // 强制重新计算居中位置: x = 2000 - width/2, y = 2000 - height/2
+            x: 2000 - (parsed.artboard.width || 800) / 2,
+            y: 2000 - (parsed.artboard.height || 600) / 2,
+          }
+        : fallback.artboard,
     }
   } catch (error) {
     console.error("Failed to load canvas state from local storage", error)
@@ -146,12 +160,14 @@ type Action =
   | { type: "SET_SELECTION"; payload: string[]; additive?: boolean }
   | { type: "CLEAR_SELECTION" }
   | { type: "SET_ZOOM"; payload: number }
+  | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "PAN_BY"; payload: { x: number; y: number } }
   | { type: "SET_MODE"; payload: InteractionMode }
   | { type: "UNDO" }
   | { type: "REDO" }
   | { type: "SET_ARTBOARD"; payload: Artboard | null }
   | { type: "UPDATE_ARTBOARD_COLOR"; payload: string }
+  | { type: "UPDATE_ARTBOARD"; payload: Partial<Artboard> }
 
 /**
  * 画布状态管理 Reducer
@@ -204,6 +220,8 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
       return { ...state, selectedIds: [] }
     case "SET_ZOOM":
       return { ...state, zoom: action.payload }
+    case "SET_PAN":
+      return { ...state, pan: action.payload }
     case "PAN_BY":
       return {
         ...state,
@@ -256,6 +274,28 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
         ...state, 
         artboard: { ...state.artboard, backgroundColor: action.payload } 
       }
+    case "UPDATE_ARTBOARD": {
+      if (!state.artboard) return state
+      // 计算新的尺寸
+      const newWidth = action.payload.width ?? state.artboard.width
+      const newHeight = action.payload.height ?? state.artboard.height
+      // 如果尺寸变化，重新计算位置以保持居中
+      const newX = action.payload.width !== undefined 
+        ? 2000 - newWidth / 2 
+        : (action.payload.x ?? state.artboard.x)
+      const newY = action.payload.height !== undefined 
+        ? 2000 - newHeight / 2 
+        : (action.payload.y ?? state.artboard.y)
+      return { 
+        ...state, 
+        artboard: { 
+          ...state.artboard, 
+          ...action.payload,
+          x: newX,
+          y: newY,
+        } 
+      }
+    }
     default:
       // 未知动作类型，返回原状态
       return state
@@ -891,6 +931,54 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   /**
+   * 更新画板属性
+   * 
+   * @function updateArtboard
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   * 
+   * @description 
+   * 更新画板的任意属性，包括宽度、高度、颜色、透明度等
+   */
+  const updateArtboard = useCallback((changes: Partial<Artboard>) => {
+    dispatch({ type: "UPDATE_ARTBOARD", payload: changes })
+  }, [])
+
+  /**
+   * 更新画板属性并自适应缩放居中显示
+   * 
+   * @function updateArtboardWithFit
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   * 
+   * @description 
+   * 更新画板属性（尤其是尺寸），并执行以下操作：
+   * 1. 重新计算画板位置，使其居中于虚拟画布（4000x4000）
+   * 2. 居中和自适应缩放由 PixiCanvas 中的 useEffect 自动处理
+   */
+  const updateArtboardWithFit = useCallback((changes: Partial<Artboard>) => {
+    const virtualCanvasSize = 4000
+    const currentArtboard = state.artboard
+    
+    // 计算新的画板尺寸
+    const newWidth = changes.width ?? currentArtboard?.width ?? 800
+    const newHeight = changes.height ?? currentArtboard?.height ?? 600
+    
+    // 计算画板在虚拟画布中的居中位置
+    const newX = (virtualCanvasSize - newWidth) / 2
+    const newY = (virtualCanvasSize - newHeight) / 2
+    
+    // 更新画板属性，包含新的位置
+    // PixiCanvas 中的 useEffect 会监听 artboard 尺寸变化并自动居中和缩放
+    dispatch({ 
+      type: "UPDATE_ARTBOARD", 
+      payload: { 
+        ...changes, 
+        x: newX, 
+        y: newY 
+      } 
+    })
+  }, [state.artboard])
+
+  /**
    * 设置画布缩放比例
    * 
    * @function setZoom
@@ -1175,6 +1263,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 画板操作方法
       setArtboard,
       updateArtboardColor,
+      updateArtboard,
+      updateArtboardWithFit,
     }),
     [
       state,
@@ -1202,6 +1292,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       ungroupElements,
       setArtboard,
       updateArtboardColor,
+      updateArtboard,
+      updateArtboardWithFit,
     ]
   )
 

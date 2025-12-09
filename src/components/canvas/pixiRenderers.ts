@@ -615,12 +615,13 @@ export const createBoundsHandlesLayer = ({
 
 // 创建画板渲染
 export const createArtboard = (
-  artboard: { x: number; y: number; width: number; height: number; backgroundColor: string },
+  artboard: { x: number; y: number; width: number; height: number; backgroundColor: string; opacity?: number },
   zoom: number
 ) => {
   const container = new Container()
   container.zIndex = 0 // 画板在最底层
   container.eventMode = "none" // 画板不接收事件
+  container.alpha = artboard.opacity ?? 1 // 应用画板透明度
 
   // 绘制画板背景
   const bg = new Graphics()

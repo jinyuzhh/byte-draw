@@ -223,6 +223,157 @@ const PRESET_COLORS = [
   '#fff1f2', '#ffe4e6', '#fecdd3', '#fda4af', '#fb7185', '#f43f5e', '#e11d48', '#be123c', '#9f1239', '#881337',
 ];
 
+// 画板尺寸选择器组件
+const ArtboardSizeSelector = ({
+  width,
+  height,
+  onWidthChange,
+  onHeightChange,
+}: {
+  width: number;
+  height: number;
+  onWidthChange: (value: number) => void;
+  onHeightChange: (value: number) => void;
+}) => {
+  const [customWidth, setCustomWidth] = React.useState(width);
+  const [customHeight, setCustomHeight] = React.useState(height);
+
+  // 同步外部值到自定义输入
+  React.useEffect(() => {
+    setCustomWidth(width);
+    setCustomHeight(height);
+  }, [width, height]);
+
+  return (
+    <div className="space-y-3">
+      {/* 自定义尺寸输入 */}
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          value={customWidth}
+          onChange={(e) => {
+            const val = Math.max(100, Math.min(4096, Number(e.target.value)));
+            setCustomWidth(val);
+            onWidthChange(val);
+          }}
+          className="w-20 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none text-center"
+          min={100}
+          max={4096}
+        />
+        <span className="text-slate-400">×</span>
+        <input
+          type="number"
+          value={customHeight}
+          onChange={(e) => {
+            const val = Math.max(100, Math.min(4096, Number(e.target.value)));
+            setCustomHeight(val);
+            onHeightChange(val);
+          }}
+          className="w-20 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none text-center"
+          min={100}
+          max={4096}
+        />
+        <span className="text-xs text-slate-400">px</span>
+      </div>
+    </div>
+  );
+};
+
+// 画板背景颜色选择器组件
+const ArtboardColorSelector = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+}) => {
+  // 画板常用背景色
+  const quickColors = [
+    '#ffffff', '#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1',
+    '#fef2f2', '#fef3c7', '#dcfce7', '#dbeafe', '#f3e8ff',
+    '#1e293b', '#0f172a', '#000000', '#3b82f6', '#22c55e',
+  ];
+
+  return (
+    <div className="space-y-3">
+      {/* 快捷颜色选择 */}
+      <div className="grid grid-cols-5 gap-2">
+        {quickColors.map((color, index) => (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onChange(color)}
+            className={`h-8 w-full rounded-lg transition-all hover:scale-105 ${
+              color === value
+                ? "ring-2 ring-blue-500 ring-offset-2"
+                : color === '#ffffff'
+                ? "border border-canvas-border"
+                : ""
+            }`}
+            style={{ backgroundColor: color }}
+            aria-label={`选择颜色 ${color}`}
+          />
+        ))}
+      </div>
+
+      {/* 更多颜色折叠区 */}
+      <details className="group">
+        <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 list-none flex items-center gap-1">
+          <svg
+            className="w-3 h-3 transition-transform group-open:rotate-90"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          更多颜色
+        </summary>
+        <div className="mt-2 grid grid-cols-10 gap-1">
+          {PRESET_COLORS.map((color, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => onChange(color)}
+              className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
+                color === value
+                  ? "ring-2 ring-blue-500 ring-offset-1"
+                  : color === '#ffffff'
+                  ? "border border-canvas-border"
+                  : ""
+              }`}
+              style={{ backgroundColor: color }}
+              aria-label={`选择颜色 ${color}`}
+            />
+          ))}
+        </div>
+      </details>
+
+      {/* 自定义颜色选择器 */}
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-8 w-12 cursor-pointer rounded-lg border border-canvas-border bg-white"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+              onChange(val);
+            }
+          }}
+          placeholder="#ffffff"
+          className="flex-1 px-2 py-1 text-sm border border-canvas-border rounded-lg focus:border-canvas-accent focus:outline-none"
+        />
+      </div>
+    </div>
+  );
+};
+
 // 颜色选项卡类型
 type ColorTabType = 'fill' | 'stroke';
 
@@ -626,7 +777,7 @@ const getTypeDisplayName = (type: CanvasElement["type"] | null): string => {
  * ```
  */
 export const RightPanel = () => {
-  const { state, updateElement, deleteSelected } = useCanvas()
+  const { state, updateElement, deleteSelected, updateArtboard } = useCanvas()
   const selectedId = state.selectedIds[0]
   const selectedElement = state.elements.find((el) => el.id === selectedId)
 
@@ -966,18 +1117,63 @@ export const RightPanel = () => {
   }
 
 
-  // 未选中元素时显示的空状态
+  // 未选中元素时显示画板属性编辑面板
   if (!selectedElement) {
+    const artboard = state.artboard
+    
     return (
-      <aside className="flex w-80 flex-col gap-3 border-l border-canvas-border bg-white/70 p-6 text-sm text-slate-500">
-        <p className="font-semibold text-slate-700">属性</p>
-        <p>请选择画布中的元素以编辑属性。</p>
-        <ul className="list-disc space-y-1 pl-4 text-xs text-slate-400">
-          <li>支持图形、文字、图片基础属性调整</li>
-          <li>可在左侧插入新的画布元素</li>
-        </ul>
-        <p>选中单元素，支持其类型下的所有属性编辑</p>
-        <p>选中多元素，支持统一设置宽高、旋转和不透明度</p>
+      <aside className="flex w-80 flex-col gap-4 overflow-y-auto border-l border-canvas-border bg-white/70 p-4">
+        {/* 画板信息头部 */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">画板设置</p>
+            <p className="text-base font-semibold text-slate-900">
+              画板属性
+            </p>
+          </div>
+        </div>
+
+        {/* 画板尺寸设置 */}
+        <Section title="画板尺寸">
+          <ArtboardSizeSelector
+            width={artboard?.width ?? 800}
+            height={artboard?.height ?? 600}
+            onWidthChange={(value) => updateArtboard({ width: Math.max(100, value) })}
+            onHeightChange={(value) => updateArtboard({ height: Math.max(100, value) })}
+          />
+        </Section>
+
+        {/* 画板外观设置 */}
+        <Section title="画板背景">
+          <ArtboardColorSelector
+            value={artboard?.backgroundColor ?? "#ffffff"}
+            onChange={(value) => updateArtboard({ backgroundColor: value })}
+          />
+          <Field label="不透明度">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={artboard?.opacity ?? 1}
+                onChange={(event) => updateArtboard({ opacity: Number(event.target.value) })}
+                className="flex-1"
+              />
+              <span className="w-12 text-center text-sm">{Math.round((artboard?.opacity ?? 1) * 100)}%</span>
+            </div>
+          </Field>
+        </Section>
+
+        {/* 提示信息 */}
+        <div className="mt-2 text-xs text-slate-400 space-y-1">
+          <p>💡 提示：</p>
+          <ul className="list-disc pl-4 space-y-1">
+            <li>画板是所有元素的基础容器</li>
+            <li>新增的元素会渲染在画板上</li>
+            <li>选中画布中的元素可编辑元素属性</li>
+          </ul>
+        </div>
       </aside>
     )
   }
