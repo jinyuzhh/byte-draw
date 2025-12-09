@@ -1118,14 +1118,25 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * @returns {string|null} 图片的Data URL或null（如果导出失败）
    * 
    * @description 
-   * 将当前画布导出为PNG格式的图片：
+   * 将当前画布导出为用户选定格式的图片：
    * 1. 获取已注册的PixiJS应用实例
    * 2. 如果存在画板，只导出画板区域的内容
    * 3. 使用renderer.extract.canvas方法提取画布内容
-   * 4. 将提取的canvas转换为PNG格式的Data URL
+   * 4. 将提取的canvas转换为指定格式的Data URL
    * 5. 返回可用于下载或显示的图片数据
    */
-  const exportAsImage = useCallback(() => {
+  const exportAsImage = useCallback((
+    options?: {
+      format?: 'png' | 'jpg' | 'jpeg'
+      quality?: number
+      scale?: number
+  }) => {
+    const {
+      format = 'png',
+      quality = 1,
+      scale = 1
+    } = options || {}
+
     const app = appRef.current
     if (!app) return null
     
@@ -1159,6 +1170,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       })
     }
 
+    alert(`画布尺寸: ${artboard?.width} px * ${artboard?.height} px`)
+    
     try {
       // 重置缩放以获取原始尺寸
       app.stage.scale.set(1)
@@ -1178,23 +1191,34 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         
         // 创建裁剪后的 canvas
         const croppedCanvas = document.createElement('canvas')
-        croppedCanvas.width = artboard.width
-        croppedCanvas.height = artboard.height
+        croppedCanvas.width = artboard.width * scale
+        croppedCanvas.height = artboard.height * scale
         const ctx = croppedCanvas.getContext('2d')
         if (!ctx) return null
+
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
         
         // 绘制裁剪区域
         ctx.drawImage(
           fullCanvas,
-          0, 0, artboard.width, artboard.height,  // 源区域（从左上角开始）
-          0, 0, artboard.width, artboard.height   // 目标区域
+
+          0,
+          0,
+          artboard.width * 1.5,
+          artboard.height * 1.5,  // 源图区域
+
+          0,
+          0, 
+          artboard.width * scale, 
+          artboard.height * scale      // 目标区域
         )
         
-        return croppedCanvas.toDataURL("image/png")
+        return croppedCanvas.toDataURL(`image/${format}`, quality) ?? null
       } else {
         // 没有画板，导出整个画布
         const canvas = getCanvas.call(extractor, app.stage)
-        return canvas?.toDataURL("image/png") ?? null
+        return canvas?.toDataURL(`image/${format}`, quality) ?? null
       }
     } finally {
       // 恢复原始状态
