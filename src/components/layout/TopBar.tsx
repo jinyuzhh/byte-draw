@@ -137,7 +137,7 @@ export const TopBar = () => {
           className="flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-md hover:bg-slate-800 transition-colors"
         >
           <Download size={16} />
-          导出 PNG
+          导出
         </button>
       </div>
     </header>
