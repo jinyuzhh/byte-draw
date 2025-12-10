@@ -30,6 +30,8 @@ import {
   createArtboard
 } from "./pixiRenderers"
 import { RightClickMenu } from "./RightClickMenu"
+import { TextEditOverlay } from "./TextEditOverlay"
+import { TextToolbar } from "./TextToolbar"
 
 export const PixiCanvas = () => {
   // --- 1. 全局变量声明 ---
@@ -49,6 +51,8 @@ export const PixiCanvas = () => {
     groupElements,
     ungroupElements,
     updateArtboard,
+    startEditingText,
+    stopEditingText,
   } = useCanvas(); // --- 3. Refs 定义 ---
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -74,6 +78,7 @@ export const PixiCanvas = () => {
     snapshot: Record<string, CanvasElement>;
     historySnapshot: CanvasElement[];
     moved: boolean;
+    shouldEnterEditOnRelease?: boolean; // 标记是否应该在释放时进入编辑模式
   } | null>(null);
 
   const resizeRef = useRef<{
@@ -210,13 +215,34 @@ export const PixiCanvas = () => {
     (event: FederatedPointerEvent, elementId: string) => {
       event.stopPropagation();
       if (stateRef.current.interactionMode !== "select") return;
-      const { selectedIds, elements } = stateRef.current;
+      const { selectedIds, elements, editingTextId } = stateRef.current;
+      
+      // 如果正在编辑文本，点击其他元素时退出编辑模式
+      if (editingTextId && editingTextId !== elementId) {
+        stopEditingText();
+      }
+      
+      // 如果正在编辑当前点击的文本元素，不做任何处理（让 textarea 接收事件）
+      if (editingTextId === elementId) {
+        return;
+      }
+      
       const nativeEvent = event.originalEvent as unknown as
         | { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }
         | undefined;
       const additive = Boolean(
         nativeEvent?.shiftKey || nativeEvent?.metaKey || nativeEvent?.ctrlKey
       );
+
+      // 检查是否是已选中的文本元素被再次点击（可能进入编辑模式）
+      const clickedElement = elements.find(el => el.id === elementId);
+      const shouldEnterEditOnRelease = 
+        clickedElement &&
+        clickedElement.type === "text" &&
+        selectedIds.length === 1 &&
+        selectedIds.includes(elementId) &&
+        !editingTextId &&
+        !additive;
 
       const selection = additive
         ? Array.from(new Set([...selectedIds, elementId]))
@@ -242,9 +268,10 @@ export const PixiCanvas = () => {
         snapshot,
         historySnapshot: cloneElements(elements),
         moved: false,
+        shouldEnterEditOnRelease, // 标记是否应该在释放时进入编辑模式
       };
     },
-    [setSelection]
+    [setSelection, stopEditingText]
   );
 
   const handleSelectionBoxPointerDown = useCallback(
@@ -468,14 +495,23 @@ export const PixiCanvas = () => {
     // 1. 渲染元素（到可能被遮罩的容器中）
     state.elements.forEach(async (element) => {
       const selected = state.selectedIds.includes(element.id);
+      const isEditing = state.editingTextId === element.id;
+      
       const node = await createShape(element, state.interactionMode, (event) =>
         handleElementPointerDown(event, element.id)
       );
       node.zIndex = 1;
+      
+      // 如果正在编辑该文本元素，隐藏 Pixi 渲染的内容（用 HTML textarea 替代）
+      if (isEditing) {
+        node.visible = false;
+      }
+      
       elementsContainer.addChild(node);
 
       // 选中轮廓渲染到 content 层（不受遮罩影响，超出画板部分也显示）
-      if (selected) {
+      // 注意：如果元素正在编辑中，不渲染选中轮廓（由 TextEditOverlay 渲染编辑态边框）
+      if (selected && !isEditing) {
         const outline = createSelectionOutline(element);
         outline.zIndex = 49; // 确保在遮罩容器之上，但在控制手柄之下
         content.addChild(outline);
@@ -483,7 +519,8 @@ export const PixiCanvas = () => {
     });
 
     // 2. 渲染控制层（直接添加到 content，不受遮罩影响）
-    if (state.interactionMode === "select" && state.selectedIds.length > 0) {
+    // 注意：如果正在编辑文本，不渲染控制层（调整手柄等）
+    if (state.interactionMode === "select" && state.selectedIds.length > 0 && !state.editingTextId) {
       const selectedElements = state.elements.filter((el) =>
         state.selectedIds.includes(el.id)
       );
@@ -557,12 +594,23 @@ export const PixiCanvas = () => {
     state.interactionMode,
     state.zoom,
     state.artboard,
+    state.editingTextId,
     handleElementPointerDown,
     handleResizeStart,
     handleRotateStart,
     handleSelectionBoxPointerDown,
     pixiReady, // PixiJS 初始化完成后触发渲染
-  ]); // --- 10. Effect: 缩放同步（pan 由 onScroll 驱动，不在这里处理） ---
+  ]); 
+  
+  // --- 9.5. Effect: 当选择改变时退出编辑模式 ---
+  useEffect(() => {
+    // 如果当前正在编辑文本，但该文本不再被选中，则退出编辑模式
+    if (state.editingTextId && !state.selectedIds.includes(state.editingTextId)) {
+      stopEditingText();
+    }
+  }, [state.selectedIds, state.editingTextId, stopEditingText]);
+  
+  // --- 10. Effect: 缩放同步（pan 由 onScroll 驱动，不在这里处理） ---
 
   useEffect(() => {
     const app = appRef.current;
@@ -794,6 +842,12 @@ export const PixiCanvas = () => {
           event.preventDefault();
           return;
         }
+        
+        // 点击背景时，如果正在编辑文本，先退出编辑模式
+        if (stateRef.current.editingTextId) {
+          stopEditingText();
+        }
+        
         if (stateRef.current.interactionMode === "pan") {
           // 记录起始指针位置和起始滚动位置
           const scrollContainer = scrollContainerRef.current;
@@ -1125,6 +1179,14 @@ export const PixiCanvas = () => {
           }
         }
 
+        // 检查是否应该进入文本编辑模式（点击已选中的文本元素且没有移动）
+        if (dragRef.current?.shouldEnterEditOnRelease && !dragRef.current.moved) {
+          const elementId = dragRef.current.ids[0];
+          if (elementId) {
+            startEditingText(elementId);
+          }
+        }
+
         if (dragRef.current?.moved) {
           mutateElements((elements) => elements, {
             historySnapshot: dragRef.current.historySnapshot,
@@ -1175,6 +1237,8 @@ export const PixiCanvas = () => {
     registerApp,
     performResize,
     setSelection,
+    startEditingText,
+    stopEditingText,
   ]);
 
   const menuItems = [
@@ -1351,6 +1415,15 @@ export const PixiCanvas = () => {
           }}
         />
       </div>
+
+      {/* 4. 文本编辑覆盖层 - 放在滚动容器外部 */}
+      <TextEditOverlay
+        scrollContainerRef={scrollContainerRef}
+        canvasWrapperRef={wrapperRef}
+      />
+
+      {/* 文本工具栏 - 当文本元素被选中时显示在右上角 */}
+      <TextToolbar />
 
       {/* 右键菜单层级最高，放在外面没问题 */}
       <RightClickMenu
