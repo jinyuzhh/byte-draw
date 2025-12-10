@@ -440,55 +440,9 @@ export const PixiCanvas = () => {
       );
     },
     [mutateElements]
-  ); // --- 8. renderElements 定义 (关键修复点：必须在 useEffect 之前) ---
-
-  const renderElements = useCallback(
-    (
-      content: Container,
-      elements: CanvasElement[],
-      currentState: typeof state
-    ) => {
-      content
-        .removeChildren()
-        .forEach((child) => child.destroy({ children: true }));
-      content.sortableChildren = true;
-
-      elements.forEach(async (element) => {
-        const selected = state.selectedIds.includes(element.id);
-        const node = await createShape(
-          element,
-          state.interactionMode,
-          (event) => handleElementPointerDown(event, element.id)
-        );
-        node.zIndex = 1;
-        content.addChild(node);
-
-        if (
-          selected &&
-          currentState.selectedIds.length === 1 &&
-          currentState.interactionMode === "select"
-        ) {
-          const handlesLayer = createResizeHandlesLayer(
-            element,
-            currentState.zoom,
-            resizeRef.current?.direction ?? null,
-            state.selectedIds,
-            handleResizeStart,
-            handleRotateStart
-          );
-          content.addChild(handlesLayer);
-        }
-      });
-    },
-    [
-      handleElementPointerDown,
-      handleResizeStart,
-      handleRotateStart,
-      state.interactionMode,
-      state.selectedIds,
-    ]
-  ); // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
-
+  ); 
+  
+  // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
   useEffect(() => {
     const content = contentRef.current;
     const app = appRef.current;
