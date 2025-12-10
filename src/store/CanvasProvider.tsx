@@ -89,6 +89,7 @@ const baseState: CanvasState = {
     opacity: 1,
     visible: true
   },
+  editingTextId: null,  // 当前正在编辑的文本元素ID
 }
 
 /**
@@ -168,6 +169,8 @@ type Action =
   | { type: "SET_ARTBOARD"; payload: Artboard | null }
   | { type: "UPDATE_ARTBOARD_COLOR"; payload: string }
   | { type: "UPDATE_ARTBOARD"; payload: Partial<Artboard> }
+  | { type: "START_EDITING_TEXT"; payload: string }
+  | { type: "STOP_EDITING_TEXT" }
 
 /**
  * 画布状态管理 Reducer
@@ -296,6 +299,10 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
         } 
       }
     }
+    case "START_EDITING_TEXT":
+      return { ...state, editingTextId: action.payload }
+    case "STOP_EDITING_TEXT":
+      return { ...state, editingTextId: null }
     default:
       // 未知动作类型，返回原状态
       return state
@@ -745,6 +752,11 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 
    * @function deleteSelected
    * 
+  /**
+   * 删除所有选中的元素
+   * 
+   * @function deleteSelected
+   * 
    * @description 
    * 从画布中删除当前选中的所有元素：
    * 1. 检查是否有选中的元素，无则直接返回
@@ -761,6 +773,53 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     )
     // 清除选择状态
     dispatch({ type: "CLEAR_SELECTION" })
+  }, [mutateElements, state.selectedIds])
+
+  /**
+   * 开始编辑文本元素
+   * 
+   * @function startEditingText
+   * @param {string} id - 要编辑的文本元素ID
+   */
+  const startEditingText = useCallback((id: string) => {
+    dispatch({ type: "START_EDITING_TEXT", payload: id })
+  }, [])
+
+  /**
+   * 停止编辑文本元素
+   * 
+   * @function stopEditingText
+   */
+  const stopEditingText = useCallback(() => {
+    dispatch({ type: "STOP_EDITING_TEXT" })
+  }, [])
+
+  /**
+   * 将选中的元素移动到最前面（数组末尾）
+   * 
+   * @function bringToFront
+   */
+  const bringToFront = useCallback(() => {
+    if (!state.selectedIds.length) return
+    mutateElements((elements) => {
+      const selected = elements.filter(el => state.selectedIds.includes(el.id))
+      const rest = elements.filter(el => !state.selectedIds.includes(el.id))
+      return [...rest, ...selected]
+    })
+  }, [mutateElements, state.selectedIds])
+
+  /**
+   * 将选中的元素移动到最后面（数组开头）
+   * 
+   * @function sendToBack
+   */
+  const sendToBack = useCallback(() => {
+    if (!state.selectedIds.length) return
+    mutateElements((elements) => {
+      const selected = elements.filter(el => state.selectedIds.includes(el.id))
+      const rest = elements.filter(el => !state.selectedIds.includes(el.id))
+      return [...selected, ...rest]
+    })
   }, [mutateElements, state.selectedIds])
 
   /**
@@ -1287,6 +1346,12 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       updateArtboardColor,
       updateArtboard,
       updateArtboardWithFit,
+      // 文本编辑操作方法
+      startEditingText,
+      stopEditingText,
+      // 图层排列操作方法
+      bringToFront,
+      sendToBack,
     }),
     [
       state,
@@ -1316,6 +1381,10 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       updateArtboardColor,
       updateArtboard,
       updateArtboardWithFit,
+      startEditingText,
+      stopEditingText,
+      bringToFront,
+      sendToBack,
     ]
   )
 

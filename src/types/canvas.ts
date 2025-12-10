@@ -395,6 +395,7 @@ export interface CanvasState {
   history: CanvasElement[][]
   redoStack: CanvasElement[][]
   artboard: Artboard | null
+  editingTextId: string | null  // 当前正在编辑的文本元素ID
 }
 
 /**
@@ -595,4 +596,39 @@ export interface CanvasContextValue {
    * 这使得添加新元素时可以将其放置在当前可见视口的中心位置。
    */
   registerScrollContainer: (container: HTMLDivElement | null) => void
+
+  /**
+   * 开始编辑文本元素
+   * 
+   * @function startEditingText
+   * @param {string} id - 要编辑的文本元素ID
+   * 
+   * @description 
+   * 进入文本编辑模式，显示输入框允许用户修改文本内容
+   */
+  startEditingText: (id: string) => void
+
+  /**
+   * 停止编辑文本元素
+   * 
+   * @function stopEditingText
+   * 
+   * @description 
+   * 退出文本编辑模式，隐藏输入框
+   */
+  stopEditingText: () => void
+
+  /**
+   * 将选中的元素移动到最前面
+   * 
+   * @function bringToFront
+   */
+  bringToFront: () => void
+
+  /**
+   * 将选中的元素移动到最后面
+   * 
+   * @function sendToBack
+   */
+  sendToBack: () => void
 }
