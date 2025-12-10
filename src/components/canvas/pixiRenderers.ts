@@ -149,20 +149,42 @@ export const createShape = async (
       container.addChild(bg)
     }
 
+    const padding = 12
+
     const text = new Text({
       text: element.text,
       style: new TextStyle({
         fontFamily: element.fontFamily,
         fontSize: element.fontSize,
         fontWeight: `${element.fontWeight}` as TextStyleFontWeight,
+        fontStyle: element.italic ? 'italic' : 'normal',
         fill: element.color,
         align: element.align,
         lineHeight: element.fontSize * element.lineHeight,
+        letterSpacing: element.letterSpacing || 0,
         wordWrap: true,
-        wordWrapWidth: element.width,
+        wordWrapWidth: element.width - (padding * 2), // 减去左右 padding
       }),
     })
-    text.position.set(12, 12)
+    // 根据对齐方式计算位置和锚点
+    switch (element.align) {
+      case "center":
+        // 居中：锚点设为文本中心，X坐标设为容器的一半
+        text.anchor.set(0.5, 0)
+        text.position.set(element.width / 2, padding)
+        break
+      case "right":
+        // 右对齐：锚点设为文本右侧，X坐标设为容器宽度减去 padding
+        text.anchor.set(1, 0)
+        text.position.set(element.width - padding, padding)
+        break
+      case "left":
+      default:
+        // 左对齐：锚点设为左侧，X坐标设为 padding
+        text.anchor.set(0, 0)
+        text.position.set(padding, padding)
+        break
+    }
     container.addChild(text)
   }
 
