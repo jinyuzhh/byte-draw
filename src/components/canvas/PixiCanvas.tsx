@@ -487,7 +487,7 @@ export const PixiCanvas = () => {
       elementsContainer = new Container();
       elementsContainer.sortableChildren = true;
       elementsContainer.eventMode = "static";
-      elementsContainer.zIndex = 1;
+      elementsContainer.zIndex = 10;
       
       // 创建遮罩图形（与画板形状相同）
       const mask = new Graphics();
@@ -502,6 +502,9 @@ export const PixiCanvas = () => {
       // 应用遮罩
       elementsContainer.mask = mask;
       content.addChild(mask);
+      mask.alpha = 0;
+      mask.eventMode = 'none';
+      mask.zIndex = 0;
       content.addChild(elementsContainer);
     } else {
       // 没有画板时，元素直接渲染到 content
@@ -611,6 +614,7 @@ export const PixiCanvas = () => {
     const app = appRef.current;
     if (!app) return; // 只处理缩放
     app.stage.scale.set(state.zoom);
+    updateViewportGeometry();
   }, [state.zoom]); 
   
   // --- 10.5. Effect: 画板尺寸变化时自动居中和自适应缩放 ---
@@ -643,6 +647,8 @@ export const PixiCanvas = () => {
       
       // 设置新的缩放比例
       setZoom(clampedZoom);
+
+      stateRef.current.zoom = clampedZoom;
       
       // 计算滚动位置，将画板居中显示在视口中
       const virtualCanvasSize = 4000;
@@ -661,12 +667,21 @@ export const PixiCanvas = () => {
           scrollContainerRef.current.scrollTop = newScrollTop;
           
           // 同步更新 Pixi 容器位置
+          // 需要除以缩放因子，因为 stage 的 scale 会应用到 content 的 position 上
           if (contentRef.current) {
-            contentRef.current.position.set(-newScrollLeft, -newScrollTop);
+            contentRef.current.position.set(-newScrollLeft / clampedZoom, -newScrollTop / clampedZoom);
           }
           if (guidesRef.current) {
-            guidesRef.current.position.set(-newScrollLeft, -newScrollTop);
+            guidesRef.current.position.set(-newScrollLeft / clampedZoom, -newScrollTop / clampedZoom);
           }
+          const deltaX = newScrollLeft - stateRef.current.pan.x;
+          const deltaY = newScrollTop - stateRef.current.pan.y;
+          if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+           // 立即更新 Store
+           panBy({ x: deltaX, y: deltaY });
+           // 立即更新 Ref，保证当前闭包内的逻辑也能读到最新值
+           stateRef.current.pan = { x: newScrollLeft, y: newScrollTop };
+        }
         }
       }, 100);
     }
@@ -1309,11 +1324,12 @@ export const PixiCanvas = () => {
       scrollContainer.scrollTop = initialScrollTop;
       
       // 更新 Pixi 容器的初始位置
+      // 需要除以缩放因子，因为 stage 的 scale 会应用到 content 的 position 上
       if (contentRef.current) {
-        contentRef.current.position.set(-initialScrollLeft, -initialScrollTop);
+        contentRef.current.position.set(-initialScrollLeft / state.zoom, -initialScrollTop / state.zoom);
       }
       if (guidesRef.current) {
-        guidesRef.current.position.set(-initialScrollLeft, -initialScrollTop);
+        guidesRef.current.position.set(-initialScrollLeft / state.zoom, -initialScrollTop / state.zoom);
       }
       
       // 标记初始滚动位置已设置
