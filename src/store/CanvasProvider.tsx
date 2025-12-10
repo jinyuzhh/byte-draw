@@ -627,9 +627,14 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         fontFamily: "Inter",
         fontWeight: 500,
         align: "left",
+        verticalAlign: "top",
         color: "#0f172a",
         background: "#ffffff",
         lineHeight: 1.3,
+        letterSpacing: 0,
+        italic: false,
+        underline: false,
+        textTransform: "none",
       }
       // 将新元素添加到画布
       mutateElements((elements) => [...elements, element])

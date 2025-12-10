@@ -194,10 +194,33 @@ export interface TextElement extends ElementBase {
   fontSize: number
   fontFamily: string
   fontWeight: number
-  align: "left" | "center" | "right"
+  align: "left" | "center" | "right" | "justify"
+  verticalAlign?: "top" | "middle" | "bottom"
   color: string
   background: string
   lineHeight: number
+  letterSpacing?: number
+  italic?: boolean
+  underline?: boolean
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize"
+  // 进阶样式
+  textShadow?: {
+    enabled: boolean
+    offsetX: number
+    offsetY: number
+    blur: number
+    color: string
+  }
+  textStroke?: {
+    enabled: boolean
+    width: number
+    color: string
+  }
+  textGlow?: {
+    enabled: boolean
+    blur: number
+    color: string
+  }
 }
 
 /**
