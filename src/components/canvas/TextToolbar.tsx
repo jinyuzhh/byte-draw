@@ -87,7 +87,7 @@ const CollapsibleSection = ({
  */
 export const TextToolbar = () => {
   const { state, updateElement, bringToFront, sendToBack } = useCanvas()
-  const [activeTab, setActiveTab] = useState<ToolbarTab | null>(null)
+  const [activeTab, setActiveTab] = useState<ToolbarTab | null>("basic") // 默认打开"基本"选项
   const [showFontDropdown, setShowFontDropdown] = useState(false)
   const [showSizeDropdown, setShowSizeDropdown] = useState(false)
 
