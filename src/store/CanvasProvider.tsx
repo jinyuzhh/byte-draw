@@ -16,7 +16,8 @@ import type {
   CanvasState,
   InteractionMode,
   ShapeVariant,
-  GroupElement
+  GroupElement,
+  Artboard
 } from "../types/canvas"
 
 /**
@@ -76,6 +77,19 @@ const baseState: CanvasState = {
   interactionMode: "select",
   history: [],
   redoStack: [],
+  artboard: {
+    // 画板位于虚拟画布(4000x4000)的中心
+    // x = virtualCenter - width/2 = 2000 - 400 = 1600
+    // y = virtualCenter - height/2 = 2000 - 300 = 1700
+    x: 1600,
+    y: 1700,
+    width: 800,
+    height: 600,
+    backgroundColor: "#ffffff",
+    opacity: 1,
+    visible: true
+  },
+  editingTextId: null,  // 当前正在编辑的文本元素ID
 }
 
 /**
@@ -110,6 +124,17 @@ const getInitialState = (): CanvasState => {
           : fallback.pan,
       zoom: typeof parsed?.zoom === "number" ? parsed.zoom : fallback.zoom,
       interactionMode: parsed?.interactionMode || fallback.interactionMode,
+      // 合并画板属性，确保新增的 opacity 属性有默认值
+      // 同时重新计算画板位置，使其居中于虚拟画布 (4000x4000)
+      artboard: parsed?.artboard 
+        ? {
+            ...fallback.artboard,
+            ...parsed.artboard,
+            // 强制重新计算居中位置: x = 2000 - width/2, y = 2000 - height/2
+            x: 2000 - (parsed.artboard.width || 800) / 2,
+            y: 2000 - (parsed.artboard.height || 600) / 2,
+          }
+        : fallback.artboard,
     }
   } catch (error) {
     console.error("Failed to load canvas state from local storage", error)
@@ -136,10 +161,16 @@ type Action =
   | { type: "SET_SELECTION"; payload: string[]; additive?: boolean }
   | { type: "CLEAR_SELECTION" }
   | { type: "SET_ZOOM"; payload: number }
+  | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "PAN_BY"; payload: { x: number; y: number } }
   | { type: "SET_MODE"; payload: InteractionMode }
   | { type: "UNDO" }
   | { type: "REDO" }
+  | { type: "SET_ARTBOARD"; payload: Artboard | null }
+  | { type: "UPDATE_ARTBOARD_COLOR"; payload: string }
+  | { type: "UPDATE_ARTBOARD"; payload: Partial<Artboard> }
+  | { type: "START_EDITING_TEXT"; payload: string }
+  | { type: "STOP_EDITING_TEXT" }
 
 /**
  * 画布状态管理 Reducer
@@ -192,6 +223,8 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
       return { ...state, selectedIds: [] }
     case "SET_ZOOM":
       return { ...state, zoom: action.payload }
+    case "SET_PAN":
+      return { ...state, pan: action.payload }
     case "PAN_BY":
       return {
         ...state,
@@ -236,6 +269,40 @@ const canvasReducer = (state: CanvasState, action: Action): CanvasState => {
         selectedIds: [],
       }
     }
+    case "SET_ARTBOARD":
+      return { ...state, artboard: action.payload }
+    case "UPDATE_ARTBOARD_COLOR":
+      if (!state.artboard) return state
+      return { 
+        ...state, 
+        artboard: { ...state.artboard, backgroundColor: action.payload } 
+      }
+    case "UPDATE_ARTBOARD": {
+      if (!state.artboard) return state
+      // 计算新的尺寸
+      const newWidth = action.payload.width ?? state.artboard.width
+      const newHeight = action.payload.height ?? state.artboard.height
+      // 如果尺寸变化，重新计算位置以保持居中
+      const newX = action.payload.width !== undefined 
+        ? 2000 - newWidth / 2 
+        : (action.payload.x ?? state.artboard.x)
+      const newY = action.payload.height !== undefined 
+        ? 2000 - newHeight / 2 
+        : (action.payload.y ?? state.artboard.y)
+      return { 
+        ...state, 
+        artboard: { 
+          ...state.artboard, 
+          ...action.payload,
+          x: newX,
+          y: newY,
+        } 
+      }
+    }
+    case "START_EDITING_TEXT":
+      return { ...state, editingTextId: action.payload }
+    case "STOP_EDITING_TEXT":
+      return { ...state, editingTextId: null }
     default:
       // 未知动作类型，返回原状态
       return state
@@ -326,6 +393,28 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       return { x: centerX, y: centerY }
     }
   }, [state.zoom, state.pan])
+
+  /**
+   * 获取画板中心的画布坐标
+   * 
+   * @function getArtboardCenter
+   * @returns {{ x: number, y: number }} 画板中心的画布坐标
+   * 
+   * @description 
+   * 返回画板中心位置，如果没有画板则回退到视口中心
+   */
+  const getArtboardCenter = useCallback(() => {
+    const artboard = state.artboard
+    if (artboard && artboard.visible) {
+      // 计算画板中心位置
+      return {
+        x: artboard.x + artboard.width / 2,
+        y: artboard.y + artboard.height / 2,
+      }
+    }
+    // 如果没有画板，回退到视口中心
+    return getViewportCenter()
+  }, [state.artboard, getViewportCenter])
 
   /**
    * 更新元素列表的核心方法
@@ -474,14 +563,14 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       const id = createId()
       // 根据形状类型设置默认尺寸
       const size = shape === "rectangle" ? { width: 220, height: 140 } : { width: 160, height: 160 }
-      // 计算视口中心位置，将元素放置在中心
-      const viewportCenter = getViewportCenter()
+      // 计算画板中心位置，将元素放置在中心
+      const center = getArtboardCenter()
       const element: CanvasElement = {
         id,
         type: "shape",
         name: `${shape} ${state.elements.length + 1}`,
-        x: viewportCenter.x - size.width / 2,
-        y: viewportCenter.y - size.height / 2,
+        x: center.x - size.width / 2,
+        y: center.y - size.height / 2,
         width: size.width,
         height: size.height,
         rotation: 0,
@@ -500,7 +589,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length, getViewportCenter]
+    [mutateElements, state.elements.length, getArtboardCenter]
   )
 
   /**
@@ -519,16 +608,16 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const addText = useCallback(
     (text = "双击编辑文本") => {
       const id = createId()
-      // 计算视口中心位置，将元素放置在中心
-      const viewportCenter = getViewportCenter()
+      // 计算画板中心位置，将元素放置在中心
+      const center = getArtboardCenter()
       const width = 260
       const height = 80
       const element: CanvasElement = {
         id,
         type: "text",
         name: `文本 ${state.elements.length + 1}`,
-        x: viewportCenter.x - width / 2,
-        y: viewportCenter.y - height / 2,
+        x: center.x - width / 2,
+        y: center.y - height / 2,
         width,
         height,
         rotation: 0,
@@ -538,9 +627,14 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         fontFamily: "Inter",
         fontWeight: 500,
         align: "left",
+        verticalAlign: "top",
         color: "#0f172a",
         background: "#ffffff",
         lineHeight: 1.3,
+        letterSpacing: 0,
+        italic: false,
+        underline: false,
+        textTransform: "none",
       }
       // 将新元素添加到画布
       mutateElements((elements) => [...elements, element])
@@ -549,7 +643,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length, getViewportCenter]
+    [mutateElements, state.elements.length, getArtboardCenter]
   )
 
   /**
@@ -571,8 +665,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   const addImage = useCallback(
     (src: string, size?: { width: number; height: number }) => {
       const id = createId()
-      // 计算视口中心位置，将元素放置在中心
-      const viewportCenter = getViewportCenter()
+      // 计算画板中心位置，将元素放置在中心
+      const center = getArtboardCenter()
       // 使用传入的尺寸或默认尺寸
       const width = size?.width ?? 240
       const height = size?.height ?? 160
@@ -580,8 +674,8 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         id,
         type: "image",
         name: `图片 ${state.elements.length + 1}`,
-        x: viewportCenter.x - width / 2,
-        y: viewportCenter.y - height / 2,
+        x: center.x - width / 2,
+        y: center.y - height / 2,
         width,
         height,
         rotation: 0,
@@ -602,7 +696,7 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 自动切换到选择模式
       dispatch({ type: "SET_MODE", payload: "select" })
     },
-    [mutateElements, state.elements.length, getViewportCenter]
+    [mutateElements, state.elements.length, getArtboardCenter]
   )
 
   /**
@@ -663,6 +757,11 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 
    * @function deleteSelected
    * 
+  /**
+   * 删除所有选中的元素
+   * 
+   * @function deleteSelected
+   * 
    * @description 
    * 从画布中删除当前选中的所有元素：
    * 1. 检查是否有选中的元素，无则直接返回
@@ -679,6 +778,53 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
     )
     // 清除选择状态
     dispatch({ type: "CLEAR_SELECTION" })
+  }, [mutateElements, state.selectedIds])
+
+  /**
+   * 开始编辑文本元素
+   * 
+   * @function startEditingText
+   * @param {string} id - 要编辑的文本元素ID
+   */
+  const startEditingText = useCallback((id: string) => {
+    dispatch({ type: "START_EDITING_TEXT", payload: id })
+  }, [])
+
+  /**
+   * 停止编辑文本元素
+   * 
+   * @function stopEditingText
+   */
+  const stopEditingText = useCallback(() => {
+    dispatch({ type: "STOP_EDITING_TEXT" })
+  }, [])
+
+  /**
+   * 将选中的元素移动到最前面（数组末尾）
+   * 
+   * @function bringToFront
+   */
+  const bringToFront = useCallback(() => {
+    if (!state.selectedIds.length) return
+    mutateElements((elements) => {
+      const selected = elements.filter(el => state.selectedIds.includes(el.id))
+      const rest = elements.filter(el => !state.selectedIds.includes(el.id))
+      return [...rest, ...selected]
+    })
+  }, [mutateElements, state.selectedIds])
+
+  /**
+   * 将选中的元素移动到最后面（数组开头）
+   * 
+   * @function sendToBack
+   */
+  const sendToBack = useCallback(() => {
+    if (!state.selectedIds.length) return
+    mutateElements((elements) => {
+      const selected = elements.filter(el => state.selectedIds.includes(el.id))
+      const rest = elements.filter(el => !state.selectedIds.includes(el.id))
+      return [...selected, ...rest]
+    })
   }, [mutateElements, state.selectedIds])
 
   /**
@@ -845,6 +991,80 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
   }, [state.selectedIds, state.elements, mutateElements])
 
   /**
+   * 设置画板
+   * 
+   * @function setArtboard
+   * @param {Artboard | null} artboard - 画板配置或 null
+   * 
+   * @description 
+   * 设置画布的画板区域，画板定义了导出时的裁剪区域
+   */
+  const setArtboard = useCallback((artboard: Artboard | null) => {
+    dispatch({ type: "SET_ARTBOARD", payload: artboard })
+  }, [])
+
+  /**
+   * 更新画板背景颜色
+   * 
+   * @function updateArtboardColor
+   * @param {string} color - 画板背景颜色（CSS颜色值）
+   * 
+   * @description 
+   * 更新画板的背景颜色
+   */
+  const updateArtboardColor = useCallback((color: string) => {
+    dispatch({ type: "UPDATE_ARTBOARD_COLOR", payload: color })
+  }, [])
+
+  /**
+   * 更新画板属性
+   * 
+   * @function updateArtboard
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   * 
+   * @description 
+   * 更新画板的任意属性，包括宽度、高度、颜色、透明度等
+   */
+  const updateArtboard = useCallback((changes: Partial<Artboard>) => {
+    dispatch({ type: "UPDATE_ARTBOARD", payload: changes })
+  }, [])
+
+  /**
+   * 更新画板属性并自适应缩放居中显示
+   * 
+   * @function updateArtboardWithFit
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   * 
+   * @description 
+   * 更新画板属性（尤其是尺寸），并执行以下操作：
+   * 1. 重新计算画板位置，使其居中于虚拟画布（4000x4000）
+   * 2. 居中和自适应缩放由 PixiCanvas 中的 useEffect 自动处理
+   */
+  const updateArtboardWithFit = useCallback((changes: Partial<Artboard>) => {
+    const virtualCanvasSize = 4000
+    const currentArtboard = state.artboard
+    
+    // 计算新的画板尺寸
+    const newWidth = changes.width ?? currentArtboard?.width ?? 800
+    const newHeight = changes.height ?? currentArtboard?.height ?? 600
+    
+    // 计算画板在虚拟画布中的居中位置
+    const newX = (virtualCanvasSize - newWidth) / 2
+    const newY = (virtualCanvasSize - newHeight) / 2
+    
+    // 更新画板属性，包含新的位置
+    // PixiCanvas 中的 useEffect 会监听 artboard 尺寸变化并自动居中和缩放
+    dispatch({ 
+      type: "UPDATE_ARTBOARD", 
+      payload: { 
+        ...changes, 
+        x: newX, 
+        y: newY 
+      } 
+    })
+  }, [state.artboard])
+
+  /**
    * 设置画布缩放比例
    * 
    * @function setZoom
@@ -962,26 +1182,122 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * @returns {string|null} 图片的Data URL或null（如果导出失败）
    * 
    * @description 
-   * 将当前画布导出为PNG格式的图片：
+   * 将当前画布导出为用户选定格式的图片：
    * 1. 获取已注册的PixiJS应用实例
-   * 2. 使用renderer.extract.canvas方法提取画布内容
-   * 3. 将提取的canvas转换为PNG格式的Data URL
-   * 4. 返回可用于下载或显示的图片数据
+   * 2. 如果存在画板，只导出画板区域的内容
+   * 3. 使用renderer.extract.canvas方法提取画布内容
+   * 4. 将提取的canvas转换为指定格式的Data URL
+   * 5. 返回可用于下载或显示的图片数据
    */
-  const exportAsImage = useCallback(() => {
+  const exportAsImage = useCallback((
+    options?: {
+      format?: 'png' | 'jpg' | 'jpeg'
+      quality?: number
+      scale?: number
+  }) => {
+    const {
+      format = 'png',
+      quality = 1,
+      scale = 1
+    } = options || {}
+
     const app = appRef.current
     if (!app) return null
+    
+    const artboard = state.artboard
     const extractor = app.renderer.extract
     if (!extractor || typeof extractor.canvas !== "function") {
       return null
     }
+    
     const getCanvas = extractor.canvas as
       | ((displayObject: unknown) => HTMLCanvasElement)
       | undefined
     if (!getCanvas) return null
-    const canvas = getCanvas.call(extractor, app.stage)
-    return canvas?.toDataURL("image/png") ?? null
-  }, [])
+
+    // 找到内容容器（第二个子元素，第一个是背景）
+    const content = app.stage.children.find(child => child.eventMode === "static" && child !== app.stage.children[0])
+    if (!content) return null
+
+    // 临时保存当前状态
+    const originalScale = { x: app.stage.scale.x, y: app.stage.scale.y }
+    const originalPosition = { x: (content as any).position?.x || 0, y: (content as any).position?.y || 0 }
+    
+    // 临时隐藏控制框（找到并隐藏 zIndex >= 10 的元素，这些是控制手柄和选择框）
+    const hiddenElements: { element: any; visible: boolean }[] = []
+    if ((content as any).children) {
+      (content as any).children.forEach((child: any) => {
+        if (child.zIndex >= 10 || (child.zIndex === 100)) {
+          hiddenElements.push({ element: child, visible: child.visible })
+          child.visible = false
+        }
+      })
+    }
+    
+    try {
+      // 重置缩放以获取原始尺寸
+      app.stage.scale.set(1)
+      
+      if (artboard && artboard.visible) {
+        // 设置内容容器位置以对齐画板
+        if ((content as any).position) {
+          (content as any).position.set(-artboard.x, -artboard.y)
+        }
+        
+        // 渲染一帧以应用更改
+        app.render()
+        
+        // 创建临时 canvas 用于裁剪
+        const fullCanvas = getCanvas.call(extractor, app.stage)
+        if (!fullCanvas) return null
+        
+        // 创建裁剪后的 canvas
+        const croppedCanvas = document.createElement('canvas')
+        croppedCanvas.width = artboard.width * scale
+        croppedCanvas.height = artboard.height * scale
+        const ctx = croppedCanvas.getContext('2d')
+        if (!ctx) return null
+
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        
+        // 绘制裁剪区域
+        ctx.drawImage(
+          fullCanvas,
+
+          0,
+          0,
+          artboard.width * 1.5,
+          artboard.height * 1.5,  // 源图区域
+
+          0,
+          0, 
+          artboard.width * scale, 
+          artboard.height * scale      // 目标区域
+        )
+        
+        return croppedCanvas.toDataURL(`image/${format}`, quality) ?? null
+      } else {
+        // 没有画板，导出整个画布
+        const canvas = getCanvas.call(extractor, app.stage)
+        return canvas?.toDataURL(`image/${format}`, quality) ?? null
+      }
+    } finally {
+      // 恢复原始状态
+      app.stage.scale.set(originalScale.x, originalScale.y)
+      if ((content as any).position) {
+        (content as any).position.set(originalPosition.x, originalPosition.y)
+      }
+      
+      // 恢复隐藏元素的可见性
+      hiddenElements.forEach(({ element, visible }) => {
+        element.visible = visible
+      })
+      
+      // 重新渲染以恢复显示
+      app.render()
+    }
+  }, [state.artboard])
 
   /**
    * 持久化画布状态到本地存储
@@ -1004,11 +1320,12 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       pan: state.pan,
       zoom: state.zoom,
       interactionMode: state.interactionMode,
+      artboard: state.artboard,
       // 不保存 history 和 redoStack，避免数据量过大
     })
     // 使用STORAGE_KEY作为键保存到localStorage
     window.localStorage.setItem(STORAGE_KEY, payload)
-  }, [state.elements, state.selectedIds, state.pan, state.zoom, state.interactionMode, isInitialized])
+  }, [state.elements, state.selectedIds, state.pan, state.zoom, state.interactionMode, state.artboard, isInitialized])
 
   /**
    * 创建上下文值对象
@@ -1051,6 +1368,17 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       // 打组和解组操作方法
       groupElements,
       ungroupElements,
+      // 画板操作方法
+      setArtboard,
+      updateArtboardColor,
+      updateArtboard,
+      updateArtboardWithFit,
+      // 文本编辑操作方法
+      startEditingText,
+      stopEditingText,
+      // 图层排列操作方法
+      bringToFront,
+      sendToBack,
     }),
     [
       state,
@@ -1076,6 +1404,14 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
       paste,
       groupElements,
       ungroupElements,
+      setArtboard,
+      updateArtboardColor,
+      updateArtboard,
+      updateArtboardWithFit,
+      startEditingText,
+      stopEditingText,
+      bringToFront,
+      sendToBack,
     ]
   )
 

@@ -1,5 +1,14 @@
 import type { CanvasElement } from "../../types/canvas";
 
+// 画板接口（用于吸附计算）
+export interface ArtboardForSnap {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+}
+
 export interface GuideLine {
   type: 'horizontal' | 'vertical';
   coor: number;
@@ -26,6 +35,24 @@ interface SnapPoint {
   x: number;
   y: number;
 }
+
+// Helper to get snap lines from an artboard
+const getArtboardSnapLines = (artboard: ArtboardForSnap): SnapLine[] => {
+  const lines: SnapLine[] = [];
+  const { x, y, width, height } = artboard;
+
+  // 水平吸附线：上边、中线、下边
+  lines.push({ type: 'horizontal', value: y, start: x, end: x + width }); // 上边
+  lines.push({ type: 'horizontal', value: y + height / 2, start: x, end: x + width }); // 中线
+  lines.push({ type: 'horizontal', value: y + height, start: x, end: x + width }); // 下边
+  
+  // 垂直吸附线：左边、中线、右边
+  lines.push({ type: 'vertical', value: x, start: y, end: y + height }); // 左边
+  lines.push({ type: 'vertical', value: x + width / 2, start: y, end: y + height }); // 中线
+  lines.push({ type: 'vertical', value: x + width, start: y, end: y + height }); // 右边
+
+  return lines;
+};
 
 // Helper to get lines from a static element
 const getSnapLines = (element: CanvasElement): SnapLine[] => {
@@ -100,20 +127,28 @@ export const calculateSnap = (
   originalDx: number,
   originalDy: number,
   startSnapshot: Record<string, CanvasElement>,
-  threshold: number = 5
+  threshold: number = 5,
+  artboard?: ArtboardForSnap | null
 ): SnapResult => {
   const movingIds = new Set(movingElements.map(el => el.id));
   const otherElements = allElements.filter(el => !movingIds.has(el.id));
 
-  if (otherElements.length === 0) {
-    return { dx: originalDx, dy: originalDy, guides: [] };
-  }
-
-  // 1. Collect all static lines
+  // 1. Collect all static lines (from other elements and artboard)
   const staticLines: SnapLine[] = [];
+  
+  // 添加其他元素的吸附线
   otherElements.forEach(el => {
     staticLines.push(...getSnapLines(el));
   });
+  
+  // 添加画板的吸附线（如果存在且可见）
+  if (artboard && artboard.visible) {
+    staticLines.push(...getArtboardSnapLines(artboard));
+  }
+
+  if (staticLines.length === 0) {
+    return { dx: originalDx, dy: originalDy, guides: [] };
+  }
 
   // 2. Collect all moving points (relative to their original position)
   // We need to know the original position to apply originalDx/Dy
@@ -259,20 +294,26 @@ export const calculateResizeSnap = (
   allElements: CanvasElement[],
   newBounds: { x: number; y: number; width: number; height: number },
   direction: ResizeEdge,
-  threshold: number = 5
+  threshold: number = 5,
+  artboard?: ArtboardForSnap | null
 ): ResizeSnapResult => {
   const resizingIds = new Set(resizingElements.map(el => el.id));
   const otherElements = allElements.filter(el => !resizingIds.has(el.id));
-
-  if (otherElements.length === 0) {
-    return { snappedBounds: newBounds, guides: [] };
-  }
 
   // 收集所有静态元素的吸附线
   const staticLines: SnapLine[] = [];
   otherElements.forEach(el => {
     staticLines.push(...getSnapLines(el));
   });
+  
+  // 添加画板的吸附线（如果存在且可见）
+  if (artboard && artboard.visible) {
+    staticLines.push(...getArtboardSnapLines(artboard));
+  }
+
+  if (staticLines.length === 0) {
+    return { snappedBounds: newBounds, guides: [] };
+  }
 
   const activeEdges = getActiveEdges(direction);
   const snappedBounds = { ...newBounds };

@@ -194,10 +194,33 @@ export interface TextElement extends ElementBase {
   fontSize: number
   fontFamily: string
   fontWeight: number
-  align: "left" | "center" | "right"
+  align: "left" | "center" | "right" | "justify"
+  verticalAlign?: "top" | "middle" | "bottom"
   color: string
   background: string
   lineHeight: number
+  letterSpacing?: number
+  italic?: boolean
+  underline?: boolean
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize"
+  // 进阶样式
+  textShadow?: {
+    enabled: boolean
+    offsetX: number
+    offsetY: number
+    blur: number
+    color: string
+  }
+  textStroke?: {
+    enabled: boolean
+    width: number
+    color: string
+  }
+  textGlow?: {
+    enabled: boolean
+    blur: number
+    color: string
+  }
 }
 
 /**
@@ -307,6 +330,41 @@ export interface GroupElement extends ElementBase {
 }
 
 /**
+ * 画板接口
+ * 定义画布中的画板区域属性
+ * 
+ * @interface Artboard
+ * 
+ * @property {number} x - 画板在画布上的X坐标（左上角）
+ * @property {number} y - 画板在画布上的Y坐标（左上角）
+ * @property {number} width - 画板的宽度（像素）
+ * @property {number} height - 画板的高度（像素）
+ * @property {string} backgroundColor - 画板的背景颜色（CSS颜色值）
+ * @property {boolean} visible - 画板是否可见
+ * 
+ * @example
+ * ```typescript
+ * const artboard: Artboard = {
+ *   x: 100,
+ *   y: 100,
+ *   width: 800,
+ *   height: 600,
+ *   backgroundColor: "#ffffff",
+ *   visible: true
+ * };
+ * ```
+ */
+export interface Artboard {
+  x: number
+  y: number
+  width: number
+  height: number
+  backgroundColor: string
+  opacity: number
+  visible: boolean
+}
+
+/**
  * 画布元素联合类型
  * 包含所有可能的画布元素类型
  * 
@@ -359,6 +417,8 @@ export interface CanvasState {
   interactionMode: InteractionMode
   history: CanvasElement[][]
   redoStack: CanvasElement[][]
+  artboard: Artboard | null
+  editingTextId: string | null  // 当前正在编辑的文本元素ID
 }
 
 /**
@@ -472,7 +532,11 @@ export interface CanvasContextValue {
   undo: () => void
   redo: () => void
   registerApp: (app: import("pixi.js").Application | null) => void
-  exportAsImage: () => string | null
+  exportAsImage: (options: {
+    format?: 'jpg' | 'png' | 'jpeg' 
+    quality?: number
+    scale?: number
+  }) => string | null
   copy: () => void
   paste: () => void
   /**
@@ -508,6 +572,47 @@ export interface CanvasContextValue {
   ungroupElements: () => void
 
   /**
+   * 设置画板
+   * 
+   * @function setArtboard
+   * @param {Artboard | null} artboard - 画板配置或 null（隐藏画板）
+   * 
+   * @description
+   * 设置画布的画板区域，画板定义了导出时的裁剪区域
+   */
+  setArtboard: (artboard: Artboard | null) => void
+
+  /**
+   * 更新画板背景颜色
+   * 
+   * @function updateArtboardColor
+   * @param {string} color - 画板背景颜色（CSS颜色值）
+   */
+  updateArtboardColor: (color: string) => void
+
+  /**
+   * 更新画板属性
+   * 
+   * @function updateArtboard
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   */
+  updateArtboard: (changes: Partial<Artboard>) => void
+
+  /**
+   * 更新画板属性并自适应缩放居中显示
+   * 
+   * @function updateArtboardWithFit
+   * @param {Partial<Artboard>} changes - 画板属性变更对象
+   * 
+   * @description 
+   * 更新画板属性（尤其是尺寸），并执行以下操作：
+   * 1. 重新计算画板位置，使其居中于虚拟画布（4000x4000）
+   * 2. 计算合适的缩放比例，使画板完整显示在视口中
+   * 3. 调整滚动位置，将画板居中于视口
+   */
+  updateArtboardWithFit: (changes: Partial<Artboard>) => void
+
+  /**
    * 注册滚动容器引用
    * 
    * @function registerScrollContainer
@@ -518,4 +623,39 @@ export interface CanvasContextValue {
    * 这使得添加新元素时可以将其放置在当前可见视口的中心位置。
    */
   registerScrollContainer: (container: HTMLDivElement | null) => void
+
+  /**
+   * 开始编辑文本元素
+   * 
+   * @function startEditingText
+   * @param {string} id - 要编辑的文本元素ID
+   * 
+   * @description 
+   * 进入文本编辑模式，显示输入框允许用户修改文本内容
+   */
+  startEditingText: (id: string) => void
+
+  /**
+   * 停止编辑文本元素
+   * 
+   * @function stopEditingText
+   * 
+   * @description 
+   * 退出文本编辑模式，隐藏输入框
+   */
+  stopEditingText: () => void
+
+  /**
+   * 将选中的元素移动到最前面
+   * 
+   * @function bringToFront
+   */
+  bringToFront: () => void
+
+  /**
+   * 将选中的元素移动到最后面
+   * 
+   * @function sendToBack
+   */
+  sendToBack: () => void
 }

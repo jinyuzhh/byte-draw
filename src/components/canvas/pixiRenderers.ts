@@ -101,17 +101,25 @@ export const createShape = async (
       }
     }
 
+    // 创建一个内部容器用于填充，这个容器会被 mask 裁剪
+    const fillContainer = new Container()
+    
     drawPath(mask)
     mask.fill({ color: 0xffffff, alpha: 1 })
     mask.alpha = 0
     mask.eventMode = "none"
-    container.addChild(mask)
-    container.mask = mask
+    fillContainer.addChild(mask)
+    fillContainer.mask = mask
 
     drawPath(fill)
     fill.fill({ color: fillColor, alpha: 1 })
-    container.addChild(fill)
+    fillContainer.addChild(fill)
+    
+    // 将填充容器添加到主容器
+    container.addChild(fillContainer)
 
+    // 描边单独添加到主容器，不受 mask 影响
+    // 这样描边（尤其是外侧对齐的描边）不会被裁剪
     if (element.strokeWidth > 0) {
       drawPath(stroke)
       const halfMinSize =
@@ -125,7 +133,7 @@ export const createShape = async (
         stroke.stroke({
           width: safeStrokeWidth,
           color: strokeColor,
-          alignment: 1,
+          alignment: 1,  
           join: "round",
         })
         container.addChild(stroke)
@@ -611,6 +619,31 @@ export const createBoundsHandlesLayer = ({
   })
 
   return handlesLayer
+}
+
+// 创建画板渲染
+export const createArtboard = (
+  artboard: { x: number; y: number; width: number; height: number; backgroundColor: string; opacity?: number },
+  zoom: number
+) => {
+  const container = new Container()
+  container.zIndex = 0 // 画板在最底层
+  container.eventMode = "none" // 画板不接收事件
+  container.alpha = artboard.opacity ?? 1 // 应用画板透明度
+
+  // 绘制画板背景
+  const bg = new Graphics()
+  bg.rect(artboard.x, artboard.y, artboard.width, artboard.height)
+  bg.fill({ color: hexToNumber(artboard.backgroundColor) })
+  container.addChild(bg)
+
+  // 绘制画板边框（使用投影效果）
+  const shadow = new Graphics()
+  shadow.rect(artboard.x, artboard.y, artboard.width, artboard.height)
+  shadow.stroke({ width: 1 / zoom, color: 0xcccccc, alpha: 0.5 })
+  container.addChild(shadow)
+
+  return container
 }
 
 // 创建角度提示文本

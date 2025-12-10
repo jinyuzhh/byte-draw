@@ -9,6 +9,8 @@
   background-color: #f4f7fb;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  /* 优化字体加载 - 减少 CLS */
+  font-display: swap;
 }
 
 body {
@@ -19,6 +21,36 @@ body {
 
 #root {
   height: 100vh;
+}
+
+/* 优化动画性能 - 使用 GPU 加速 */
+@layer utilities {
+  .gpu-accelerate {
+    transform: translateZ(0);
+    will-change: transform;
+  }
+  
+  /* 减少重绘的动画 */
+  .animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+}
+
+/* 优化滚动性能 */
+.scroll-container {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* 减少不必要的重排 - 固定尺寸容器 */
+.fixed-layout {
+  contain: layout style;
 }
 
 .canvas-grid {
@@ -47,4 +79,6 @@ body {
       transparent
     );
   background-size: 32px 32px;
+  /* GPU 加速网格背景 */
+  will-change: background-position;
 }
