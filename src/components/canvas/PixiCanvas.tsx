@@ -556,7 +556,8 @@ export const PixiCanvas = () => {
       elementsContainer.addChild(node);
 
       // 选中轮廓渲染到 content 层（不受遮罩影响，超出画板部分也显示）
-      if (selected) {
+      // 注意：如果元素正在编辑中，不渲染选中轮廓（由 TextEditOverlay 渲染编辑态边框）
+      if (selected && !isEditing) {
         const outline = createSelectionOutline(element);
         outline.zIndex = 49; // 确保在遮罩容器之上，但在控制手柄之下
         content.addChild(outline);
@@ -564,7 +565,8 @@ export const PixiCanvas = () => {
     });
 
     // 2. 渲染控制层（直接添加到 content，不受遮罩影响）
-    if (state.interactionMode === "select" && state.selectedIds.length > 0) {
+    // 注意：如果正在编辑文本，不渲染控制层（调整手柄等）
+    if (state.interactionMode === "select" && state.selectedIds.length > 0 && !state.editingTextId) {
       const selectedElements = state.elements.filter((el) =>
         state.selectedIds.includes(el.id)
       );
@@ -886,6 +888,12 @@ export const PixiCanvas = () => {
           event.preventDefault();
           return;
         }
+        
+        // 点击背景时，如果正在编辑文本，先退出编辑模式
+        if (stateRef.current.editingTextId) {
+          stopEditingText();
+        }
+        
         if (stateRef.current.interactionMode === "pan") {
           // 记录起始指针位置和起始滚动位置
           const scrollContainer = scrollContainerRef.current;
@@ -1276,6 +1284,7 @@ export const PixiCanvas = () => {
     performResize,
     setSelection,
     startEditingText,
+    stopEditingText,
   ]);
 
   const menuItems = [
