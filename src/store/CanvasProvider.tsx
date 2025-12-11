@@ -1202,119 +1202,277 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
    * 将当前画布导出为用户选定格式的图片：
    * 1. 获取已注册的PixiJS应用实例
    * 2. 如果存在画板，只导出画板区域的内容
-   * 3. 使用renderer.extract.canvas方法提取画布内容
-   * 4. 将提取的canvas转换为指定格式的Data URL
+   * 3. 使用 Canvas 2D API 重新绘制所有元素
+   * 4. 将 canvas 转换为指定格式的 Data URL
    * 5. 返回可用于下载或显示的图片数据
    */
-  const exportAsImage = useCallback((
+  const exportAsImage = useCallback(async (
     options?: {
       format?: 'png' | 'jpg' | 'jpeg'
       quality?: number
       scale?: number
-  }) => {
+  }): Promise<string | null> => {
     const {
       format = 'png',
       quality = 1,
       scale = 1
     } = options || {}
 
-    const app = appRef.current
-    if (!app) return null
-    
     const artboard = state.artboard
-    const extractor = app.renderer.extract
-    if (!extractor || typeof extractor.canvas !== "function") {
-      return null
+    const elements = state.elements
+    
+    // 创建导出用的 canvas
+    const exportCanvas = document.createElement('canvas')
+    
+    // 设置 canvas 尺寸
+    if (artboard && artboard.visible) {
+      exportCanvas.width = artboard.width * scale
+      exportCanvas.height = artboard.height * scale
+    } else {
+      // 没有画板时，计算所有元素的边界
+      const bounds = elements.reduce((acc, el) => ({
+        minX: Math.min(acc.minX, el.x),
+        minY: Math.min(acc.minY, el.y),
+        maxX: Math.max(acc.maxX, el.x + el.width),
+        maxY: Math.max(acc.maxY, el.y + el.height),
+      }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity })
+      
+      exportCanvas.width = (bounds.maxX - bounds.minX) * scale || 800
+      exportCanvas.height = (bounds.maxY - bounds.minY) * scale || 600
     }
     
-    const getCanvas = extractor.canvas as
-      | ((displayObject: unknown) => HTMLCanvasElement)
-      | undefined
-    if (!getCanvas) return null
-
-    // 找到内容容器（第二个子元素，第一个是背景）
-    const content = app.stage.children.find(child => child.eventMode === "static" && child !== app.stage.children[0])
-    if (!content) return null
-
-    // 临时保存当前状态
-    const originalScale = { x: app.stage.scale.x, y: app.stage.scale.y }
-    const originalPosition = { x: (content as any).position?.x || 0, y: (content as any).position?.y || 0 }
+    const ctx = exportCanvas.getContext('2d')
+    if (!ctx) return null
     
-    // 临时隐藏控制框（找到并隐藏 zIndex >= 10 的元素，这些是控制手柄和选择框）
-    const hiddenElements: { element: any; visible: boolean }[] = []
-    if ((content as any).children) {
-      (content as any).children.forEach((child: any) => {
-        if (child.zIndex >= 10 || (child.zIndex === 100)) {
-          hiddenElements.push({ element: child, visible: child.visible })
-          child.visible = false
-        }
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    
+    // 应用缩放
+    ctx.scale(scale, scale)
+    
+    // 计算偏移量（将画板或内容移到原点）
+    const offsetX = artboard?.visible ? -artboard.x : 0
+    const offsetY = artboard?.visible ? -artboard.y : 0
+    
+    // 绘制画板背景
+    if (artboard && artboard.visible) {
+      ctx.fillStyle = artboard.backgroundColor || '#ffffff'
+      ctx.fillRect(0, 0, artboard.width, artboard.height)
+    }
+    
+    // 辅助函数：将十六进制颜色转换为 CSS 颜色
+    const hexToColor = (hex: string) => {
+      if (hex.startsWith('#')) return hex
+      return `#${hex}`
+    }
+    
+    // 辅助函数：加载图片
+    const loadImage = (src: string): Promise<HTMLImageElement> => {
+      return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.onload = () => resolve(img)
+        img.onerror = reject
+        img.src = src
       })
     }
     
-    try {
-      // 重置缩放以获取原始尺寸
-      app.stage.scale.set(1)
+    // 收集所有图片元素的 src
+    const collectImageSrcs = (elements: CanvasElement[]): string[] => {
+      const srcs: string[] = []
+      elements.forEach(el => {
+        if (el.type === 'image') {
+          srcs.push(el.src)
+        } else if (el.type === 'group' && el.children) {
+          srcs.push(...collectImageSrcs(el.children as CanvasElement[]))
+        }
+      })
+      return srcs
+    }
+    
+    // 预加载所有图片
+    const imageSrcs = collectImageSrcs(elements)
+    const imageCache = new Map<string, HTMLImageElement>()
+    
+    await Promise.all(
+      imageSrcs.map(async (src) => {
+        try {
+          const img = await loadImage(src)
+          imageCache.set(src, img)
+        } catch {
+          console.warn('Failed to load image:', src)
+        }
+      })
+    )
+    
+    // 绘制所有元素（异步版本）
+    const drawElement = async (element: CanvasElement, ctx: CanvasRenderingContext2D) => {
+      ctx.save()
       
+      // 计算元素在导出画布中的位置
+      const x = element.x + offsetX
+      const y = element.y + offsetY
+      
+      // 应用旋转（绕元素中心）
+      if (element.rotation !== 0) {
+        const centerX = x + element.width / 2
+        const centerY = y + element.height / 2
+        ctx.translate(centerX, centerY)
+        ctx.rotate((element.rotation * Math.PI) / 180)
+        ctx.translate(-centerX, -centerY)
+      }
+      
+      // 应用透明度
+      ctx.globalAlpha = element.opacity
+      
+      // 根据元素类型绘制
+      if (element.type === 'shape') {
+        const fillColor = hexToColor(element.fill)
+        const strokeColor = hexToColor(element.stroke)
+        
+        ctx.beginPath()
+        
+        switch (element.shape) {
+          case 'rectangle':
+            if (element.cornerRadius > 0) {
+              // 圆角矩形
+              const r = element.cornerRadius
+              ctx.moveTo(x + r, y)
+              ctx.lineTo(x + element.width - r, y)
+              ctx.quadraticCurveTo(x + element.width, y, x + element.width, y + r)
+              ctx.lineTo(x + element.width, y + element.height - r)
+              ctx.quadraticCurveTo(x + element.width, y + element.height, x + element.width - r, y + element.height)
+              ctx.lineTo(x + r, y + element.height)
+              ctx.quadraticCurveTo(x, y + element.height, x, y + element.height - r)
+              ctx.lineTo(x, y + r)
+              ctx.quadraticCurveTo(x, y, x + r, y)
+            } else {
+              ctx.rect(x, y, element.width, element.height)
+            }
+            break
+          case 'circle':
+            ctx.ellipse(
+              x + element.width / 2,
+              y + element.height / 2,
+              element.width / 2,
+              element.height / 2,
+              0, 0, Math.PI * 2
+            )
+            break
+          case 'triangle':
+            ctx.moveTo(x + element.width / 2, y)
+            ctx.lineTo(x + element.width, y + element.height)
+            ctx.lineTo(x, y + element.height)
+            ctx.closePath()
+            break
+        }
+        
+        ctx.fillStyle = fillColor
+        ctx.fill()
+        
+        if (element.strokeWidth > 0) {
+          ctx.strokeStyle = strokeColor
+          ctx.lineWidth = element.strokeWidth
+          ctx.stroke()
+        }
+      }
+      
+      else if (element.type === 'text') {
+        // 绘制文本背景
+        if (element.background !== 'transparent') {
+          ctx.fillStyle = hexToColor(element.background)
+          ctx.globalAlpha = element.opacity * 0.8
+          ctx.beginPath()
+          ctx.roundRect(x, y, element.width, element.height, 12)
+          ctx.fill()
+          ctx.globalAlpha = element.opacity
+        }
+        
+        // 绘制文本
+        ctx.fillStyle = hexToColor(element.color)
+        ctx.font = `${element.fontWeight} ${element.fontSize}px ${element.fontFamily}`
+        ctx.textAlign = element.align as CanvasTextAlign
+        ctx.textBaseline = 'top'
+        
+        // 文本换行处理
+        const lines = element.text.split('\n')
+        const lineHeight = element.fontSize * element.lineHeight
+        let textX = x + 12
+        if (element.align === 'center') textX = x + element.width / 2
+        else if (element.align === 'right') textX = x + element.width - 12
+        
+        lines.forEach((line, i) => {
+          ctx.fillText(line, textX, y + 12 + i * lineHeight)
+        })
+      }
+      
+      else if (element.type === 'image') {
+        // 从缓存中获取已加载的图片
+        const img = imageCache.get(element.src)
+        
+        if (img) {
+          ctx.save()
+          
+          // 创建圆角裁剪路径
+          if (element.borderRadius > 0) {
+            ctx.beginPath()
+            ctx.roundRect(x, y, element.width, element.height, element.borderRadius)
+            ctx.clip()
+          }
+          
+          // 应用滤镜效果
+          if (element.filters.grayscale) {
+            ctx.filter = 'grayscale(100%)'
+          }
+          if (element.filters.blur > 0) {
+            ctx.filter = `blur(${element.filters.blur}px)`
+          }
+          if (element.filters.brightness !== 1) {
+            ctx.filter = `brightness(${element.filters.brightness})`
+          }
+          
+          ctx.drawImage(img, x, y, element.width, element.height)
+          ctx.restore()
+        }
+      }
+      
+      else if (element.type === 'group' && element.children) {
+        // 递归绘制组内元素
+        for (const child of element.children) {
+          // 组内子元素的坐标是相对于组的
+          const childWithAbsolutePos = {
+            ...child,
+            x: element.x + child.x,
+            y: element.y + child.y,
+          }
+          await drawElement(childWithAbsolutePos as CanvasElement, ctx)
+        }
+      }
+      
+      ctx.restore()
+    }
+    
+    // 按顺序绘制所有元素
+    for (const element of elements) {
+      // 如果有画板，只绘制在画板范围内的元素
       if (artboard && artboard.visible) {
-        // 设置内容容器位置以对齐画板
-        if ((content as any).position) {
-          (content as any).position.set(-artboard.x, -artboard.y)
+        const elementRight = element.x + element.width
+        const elementBottom = element.y + element.height
+        const artboardRight = artboard.x + artboard.width
+        const artboardBottom = artboard.y + artboard.height
+        
+        // 检查元素是否与画板有交集
+        if (element.x < artboardRight && elementRight > artboard.x &&
+            element.y < artboardBottom && elementBottom > artboard.y) {
+          await drawElement(element, ctx)
         }
-        
-        // 渲染一帧以应用更改
-        app.render()
-        
-        // 创建临时 canvas 用于裁剪
-        const fullCanvas = getCanvas.call(extractor, app.stage)
-        if (!fullCanvas) return null
-        
-        // 创建裁剪后的 canvas
-        const croppedCanvas = document.createElement('canvas')
-        croppedCanvas.width = artboard.width * scale
-        croppedCanvas.height = artboard.height * scale
-        const ctx = croppedCanvas.getContext('2d')
-        if (!ctx) return null
-
-        ctx.imageSmoothingEnabled = true
-        ctx.imageSmoothingQuality = 'high'
-        
-        // 绘制裁剪区域
-        ctx.drawImage(
-          fullCanvas,
-
-          0,
-          0,
-          artboard.width * 1.5,
-          artboard.height * 1.5,  // 源图区域
-
-          0,
-          0, 
-          artboard.width * scale, 
-          artboard.height * scale      // 目标区域
-        )
-        
-        return croppedCanvas.toDataURL(`image/${format}`, quality) ?? null
       } else {
-        // 没有画板，导出整个画布
-        const canvas = getCanvas.call(extractor, app.stage)
-        return canvas?.toDataURL(`image/${format}`, quality) ?? null
+        await drawElement(element, ctx)
       }
-    } finally {
-      // 恢复原始状态
-      app.stage.scale.set(originalScale.x, originalScale.y)
-      if ((content as any).position) {
-        (content as any).position.set(originalPosition.x, originalPosition.y)
-      }
-      
-      // 恢复隐藏元素的可见性
-      hiddenElements.forEach(({ element, visible }) => {
-        element.visible = visible
-      })
-      
-      // 重新渲染以恢复显示
-      app.render()
     }
-  }, [state.artboard])
+    
+    return exportCanvas.toDataURL(`image/${format}`, quality) ?? null
+  }, [state.artboard, state.elements])
 
   /**
    * 持久化画布状态到本地存储

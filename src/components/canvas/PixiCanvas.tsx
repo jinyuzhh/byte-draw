@@ -165,11 +165,11 @@ export const PixiCanvas = () => {
     background.clear();
     background.rect(0, 0, worldWidth, worldHeight);
     background.fill({ color: 0xffffff, alpha: 0 });
-    
+
     // 2. 更新 HitArea (用于接收所有指针事件)
     const hitArea = new Rectangle(0, 0, worldWidth, worldHeight);
     background.hitArea = hitArea;
-    app.stage.hitArea = hitArea; 
+    app.stage.hitArea = hitArea;
 
   }, [state.zoom]);
 
@@ -213,20 +213,20 @@ export const PixiCanvas = () => {
 
   const handleElementPointerDown = useCallback(
     (event: FederatedPointerEvent, elementId: string) => {
-      event.stopPropagation();
       if (stateRef.current.interactionMode !== "select") return;
+      event.stopPropagation();
       const { selectedIds, elements, editingTextId } = stateRef.current;
-      
+
       // 如果正在编辑文本，点击其他元素时退出编辑模式
       if (editingTextId && editingTextId !== elementId) {
         stopEditingText();
       }
-      
+
       // 如果正在编辑当前点击的文本元素，不做任何处理（让 textarea 接收事件）
       if (editingTextId === elementId) {
         return;
       }
-      
+
       const nativeEvent = event.originalEvent as unknown as
         | { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }
         | undefined;
@@ -236,7 +236,7 @@ export const PixiCanvas = () => {
 
       // 检查是否是已选中的文本元素被再次点击（可能进入编辑模式）
       const clickedElement = elements.find(el => el.id === elementId);
-      const shouldEnterEditOnRelease = 
+      const shouldEnterEditOnRelease =
         clickedElement &&
         clickedElement.type === "text" &&
         selectedIds.length === 1 &&
@@ -276,8 +276,8 @@ export const PixiCanvas = () => {
 
   const handleSelectionBoxPointerDown = useCallback(
     (event: FederatedPointerEvent) => {
-      event.stopPropagation();
       if (stateRef.current.interactionMode !== "select") return;
+      event.stopPropagation();
       const { selectedIds, elements } = stateRef.current;
       const content = contentRef.current;
       if (!content) return;
@@ -440,8 +440,8 @@ export const PixiCanvas = () => {
       );
     },
     [mutateElements]
-  ); 
-  
+  );
+
   // --- 9. Effect: 主渲染循环 (监听 state 变化) ---
   useEffect(() => {
     const content = contentRef.current;
@@ -462,14 +462,14 @@ export const PixiCanvas = () => {
     // 创建一个带遮罩的容器，用于裁剪元素到画板范围内
     // 控制框会渲染到 content 层，不受遮罩影响
     let elementsContainer: Container;
-    
+
     if (state.artboard && state.artboard.visible) {
       // 创建遮罩容器
       elementsContainer = new Container();
       elementsContainer.sortableChildren = true;
       elementsContainer.eventMode = "static";
       elementsContainer.zIndex = 10;
-      
+
       // 创建遮罩图形（与画板形状相同）
       const mask = new Graphics();
       mask.rect(
@@ -479,7 +479,7 @@ export const PixiCanvas = () => {
         state.artboard.height
       );
       mask.fill({ color: 0xffffff });
-      
+
       // 应用遮罩
       elementsContainer.mask = mask;
       content.addChild(mask);
@@ -493,29 +493,51 @@ export const PixiCanvas = () => {
     }
 
     // 1. 渲染元素（到可能被遮罩的容器中）
-    state.elements.forEach(async (element) => {
+    // 使用 Promise.all 和 map 确保按原始顺序渲染元素
+    // 添加渲染请求ID来处理异步操作的竞态条件
+    const renderRequestId = Date.now();
+    const renderPromises = state.elements.map(async (element) => {
       const selected = state.selectedIds.includes(element.id);
       const isEditing = state.editingTextId === element.id;
-      
+
       const node = await createShape(element, state.interactionMode, (event) =>
         handleElementPointerDown(event, element.id)
       );
       node.zIndex = 1;
-      
+
       // 如果正在编辑该文本元素，隐藏 Pixi 渲染的内容（用 HTML textarea 替代）
       if (isEditing) {
         node.visible = false;
       }
-      
-      elementsContainer.addChild(node);
 
-      // 选中轮廓渲染到 content 层（不受遮罩影响，超出画板部分也显示）
-      // 注意：如果元素正在编辑中，不渲染选中轮廓（由 TextEditOverlay 渲染编辑态边框）
-      if (selected && !isEditing) {
-        const outline = createSelectionOutline(element);
-        outline.zIndex = 49; // 确保在遮罩容器之上，但在控制手柄之下
-        content.addChild(outline);
+      return { node, selected, isEditing, element, renderRequestId };
+    });
+
+    // 等待所有元素准备就绪后，按原始顺序添加到容器
+    Promise.all(renderPromises).then(results => {
+      // 检查渲染请求ID是否匹配，确保这是最新的渲染请求
+      if (results.length > 0 && results[0].renderRequestId !== renderRequestId) {
+        // 如果不是最新的请求，清理资源并返回
+        results.forEach(({ node }) => {
+          if (node.parent) {
+            node.parent.removeChild(node);
+          }
+          node.destroy({ children: true });
+        });
+        return;
       }
+
+      results.forEach(({ node, selected, isEditing, element }) => {
+        elementsContainer.addChild(node);
+
+        // 选中轮廓渲染到 content 层（不受遮罩影响，超出画板部分也显示）
+        // 注意：如果元素正在编辑中，不渲染选中轮廓（由 TextEditOverlay 渲染编辑态边框）
+        if (selected && !isEditing) {
+          const outline = createSelectionOutline(element);
+          outline.zIndex = 49; // 确保在遮罩容器之上，但在控制手柄之下
+          content.addChild(outline);
+        }
+      });
     });
 
     // 2. 渲染控制层（直接添加到 content，不受遮罩影响）
@@ -600,8 +622,8 @@ export const PixiCanvas = () => {
     handleRotateStart,
     handleSelectionBoxPointerDown,
     pixiReady, // PixiJS 初始化完成后触发渲染
-  ]); 
-  
+  ]);
+
   // --- 9.5. Effect: 当选择改变时退出编辑模式 ---
   useEffect(() => {
     // 如果当前正在编辑文本，但该文本不再被选中，则退出编辑模式
@@ -609,7 +631,7 @@ export const PixiCanvas = () => {
       stopEditingText();
     }
   }, [state.selectedIds, state.editingTextId, stopEditingText]);
-  
+
   // --- 10. Effect: 缩放同步（pan 由 onScroll 驱动，不在这里处理） ---
 
   useEffect(() => {
@@ -617,57 +639,57 @@ export const PixiCanvas = () => {
     if (!app) return; // 只处理缩放
     app.stage.scale.set(state.zoom);
     updateViewportGeometry();
-  }, [state.zoom]); 
-  
+  }, [state.zoom]);
+
   // --- 10.5. Effect: 画板尺寸变化时自动居中和自适应缩放 ---
   useEffect(() => {
     const artboard = state.artboard;
     if (!artboard || !pixiReady) return;
-    
+
     const prevSize = prevArtboardSizeRef.current;
     const currentWidth = artboard.width;
     const currentHeight = artboard.height;
-    
+
     // 检查画板尺寸是否发生变化
     if (prevSize && (prevSize.width !== currentWidth || prevSize.height !== currentHeight)) {
       // 画板尺寸变化了，执行居中和自适应缩放
       const scrollContainer = scrollContainerRef.current;
       if (!scrollContainer) return;
-      
+
       const viewportWidth = scrollContainer.clientWidth;
       const viewportHeight = scrollContainer.clientHeight;
-      
+
       // 计算自适应缩放比例，使画板完整显示在视口中
       // 留出一些边距（例如80%的视口空间用于显示画板）
       const padding = 0.8;
       const scaleX = (viewportWidth * padding) / currentWidth;
       const scaleY = (viewportHeight * padding) / currentHeight;
       const fitZoom = Math.min(scaleX, scaleY, 1); // 最大缩放为1
-      
+
       // 限制缩放比例在合理范围内
       const clampedZoom = Math.min(3, Math.max(0.25, fitZoom));
-      
+
       // 设置新的缩放比例
       setZoom(clampedZoom);
 
       stateRef.current.zoom = clampedZoom;
-      
+
       // 计算滚动位置，将画板居中显示在视口中
       const virtualCanvasSize = 4000;
       const contentWidth = virtualCanvasSize * clampedZoom;
       const contentHeight = virtualCanvasSize * clampedZoom;
-      
+
       // 滚动位置使得虚拟画布中心（也是画板中心）位于视口中心
       const newScrollLeft = Math.max(0, (contentWidth / 2) - (viewportWidth / 2));
       const newScrollTop = Math.max(0, (contentHeight / 2) - (viewportHeight / 2));
-      
+
       // 使用 setTimeout 确保 React 状态更新和 contentSize 更新后再设置滚动位置
       // 延迟 100ms 以确保所有 DOM 更新完成
       setTimeout(() => {
         if (scrollContainerRef.current) {
           scrollContainerRef.current.scrollLeft = newScrollLeft;
           scrollContainerRef.current.scrollTop = newScrollTop;
-          
+
           // 同步更新 Pixi 容器位置
           // 需要除以缩放因子，因为 stage 的 scale 会应用到 content 的 position 上
           if (contentRef.current) {
@@ -679,20 +701,20 @@ export const PixiCanvas = () => {
           const deltaX = newScrollLeft - stateRef.current.pan.x;
           const deltaY = newScrollTop - stateRef.current.pan.y;
           if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
-           // 立即更新 Store
-           panBy({ x: deltaX, y: deltaY });
-           // 立即更新 Ref，保证当前闭包内的逻辑也能读到最新值
-           stateRef.current.pan = { x: newScrollLeft, y: newScrollTop };
-        }
+            // 立即更新 Store
+            panBy({ x: deltaX, y: deltaY });
+            // 立即更新 Ref，保证当前闭包内的逻辑也能读到最新值
+            stateRef.current.pan = { x: newScrollLeft, y: newScrollTop };
+          }
         }
       }, 100);
     }
-    
+
     // 更新 ref 记录当前尺寸
     prevArtboardSizeRef.current = { width: currentWidth, height: currentHeight };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.artboard?.width, state.artboard?.height, pixiReady, setZoom]);
-  
+
   // --- 11. Effect: 光标样式 ---
 
   useEffect(() => {
@@ -798,12 +820,12 @@ export const PixiCanvas = () => {
         const artboard = stateRef.current.artboard;
         const expectedCenterX = (virtualCanvasSize - artboard.width) / 2;
         const expectedCenterY = (virtualCanvasSize - artboard.height) / 2;
-        
+
         // 如果画板位置是 (0, 0) 或者明显偏离中心太多，则重新居中
-        const needsRecenter = 
-          (artboard.x === 0 && artboard.y === 0) || 
+        const needsRecenter =
+          (artboard.x === 0 && artboard.y === 0) ||
           (artboard.x < 100 && artboard.y < 100);
-        
+
         if (needsRecenter) {
           updateArtboard({ x: expectedCenterX, y: expectedCenterY });
         }
@@ -842,12 +864,12 @@ export const PixiCanvas = () => {
           event.preventDefault();
           return;
         }
-        
+
         // 点击背景时，如果正在编辑文本，先退出编辑模式
         if (stateRef.current.editingTextId) {
           stopEditingText();
         }
-        
+
         if (stateRef.current.interactionMode === "pan") {
           // 记录起始指针位置和起始滚动位置
           const scrollContainer = scrollContainerRef.current;
@@ -897,6 +919,28 @@ export const PixiCanvas = () => {
       };
 
       app.stage.on("rightclick", handleRightClick);
+      
+      // 在 stage 级别处理 pan 模式的 pointerdown，这样点击任何地方都能触发 pan
+      app.stage.on("pointerdown", (event: FederatedPointerEvent) => {
+        if (stateRef.current.interactionMode === "pan") {
+          // 忽略右键点击
+          if (event.originalEvent && (event.originalEvent as any).button === 2) {
+            return;
+          }
+          const scrollContainer = scrollContainerRef.current;
+          panRef.current = {
+            startPointer: { x: event.global.x, y: event.global.y },
+            startScroll: {
+              x: scrollContainer?.scrollLeft ?? 0,
+              y: scrollContainer?.scrollTop ?? 0,
+            },
+          };
+          if (backgroundRef.current) {
+            backgroundRef.current.cursor = "grabbing";
+          }
+        }
+      });
+
       if (appRef.current && appRef.current.canvas && preventContextMenuRef.current) {
         appRef.current.canvas.addEventListener(
           "contextmenu",
@@ -1280,10 +1324,10 @@ export const PixiCanvas = () => {
     });
   }, [state.zoom]); // 滚动事件处理：DOM scrollLeft/scrollTop 是单一数据源
   // 直接驱动 Pixi 容器位置更新，并同步到 React state
-  
+
   // 追踪是否已完成初始滚动位置设置
   const initialScrollSetRef = useRef(false);
-  
+
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     const content = contentRef.current;
@@ -1317,12 +1361,12 @@ export const PixiCanvas = () => {
       panBy({ x: scrollX - state.pan.x, y: scrollY - state.pan.y });
     }
   }, [state.pan, panBy]);
-  
+
   // 初始化时同步滚动条位置，将画板居中显示
   useEffect(() => {
     // 已经设置过初始滚动位置，跳过
     if (initialScrollSetRef.current) return;
-    
+
     if (isInitialized && scrollContainerRef.current && pixiReady) {
       const scrollContainer = scrollContainerRef.current;
       // 注册滚动容器到 CanvasProvider，用于计算视口中心
@@ -1334,13 +1378,13 @@ export const PixiCanvas = () => {
       const virtualCanvasCenter = 2000 * state.zoom;
       const viewportWidth = scrollContainer.clientWidth;
       const viewportHeight = scrollContainer.clientHeight;
-      
+
       const initialScrollLeft = Math.max(0, virtualCanvasCenter - viewportWidth / 2);
       const initialScrollTop = Math.max(0, virtualCanvasCenter - viewportHeight / 2);
-      
+
       scrollContainer.scrollLeft = initialScrollLeft;
       scrollContainer.scrollTop = initialScrollTop;
-      
+
       // 更新 Pixi 容器的初始位置
       // 需要除以缩放因子，因为 stage 的 scale 会应用到 content 的 position 上
       if (contentRef.current) {
@@ -1349,7 +1393,7 @@ export const PixiCanvas = () => {
       if (guidesRef.current) {
         guidesRef.current.position.set(-initialScrollLeft / state.zoom, -initialScrollTop / state.zoom);
       }
-      
+
       // 标记初始滚动位置已设置
       initialScrollSetRef.current = true;
     }

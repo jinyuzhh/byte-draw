@@ -24,6 +24,9 @@ import {
 } from "./pixiConstants"
 import { getHandlePosition, hexToNumber } from "./pixiUtils"
 
+// 图片纹理缓存，避免重复加载相同图片
+const textureCache = new Map<string, Promise<any>>()
+
 type SelectionBounds = {
   x: number
   y: number
@@ -44,7 +47,8 @@ export const createShape = async (
   container.angle = element.rotation
   container.alpha = element.opacity
 
-  container.eventMode = "static"
+  // 在 pan 模式下，使用 passive 让事件穿透到背景，以便拖动画布
+  container.eventMode = interactionMode === "select" ? "static" : "passive"
   container.cursor = interactionMode === "select" ? "move" : "grab"
   container.hitArea = new Rectangle(0, 0, element.width, element.height)
 
@@ -57,9 +61,11 @@ export const createShape = async (
       for (const child of element.children) {
         // 递归调用createShape渲染子元素
         const childContainer = await createShape(child, interactionMode, (event) => {
-          // 当点击子元素时，冒泡到父组的点击事件
-          event.stopPropagation()
-          onPointerDown(event)
+          // 当点击子元素时，只在 select 模式下处理
+          if (interactionMode === "select") {
+            event.stopPropagation()
+            onPointerDown(event)
+          }
         })
         // 子元素已经是相对于组的位置，直接添加到容器
         container.addChild(childContainer)
@@ -105,7 +111,7 @@ export const createShape = async (
 
     // 创建一个内部容器用于填充，这个容器会被 mask 裁剪
     const fillContainer = new Container()
-    
+
     drawPath(mask)
     mask.fill({ color: 0xffffff, alpha: 1 })
     mask.alpha = 0
@@ -116,7 +122,7 @@ export const createShape = async (
     drawPath(fill)
     fill.fill({ color: fillColor, alpha: 1 })
     fillContainer.addChild(fill)
-    
+
     // 将填充容器添加到主容器
     container.addChild(fillContainer)
 
@@ -135,7 +141,7 @@ export const createShape = async (
         stroke.stroke({
           width: safeStrokeWidth,
           color: strokeColor,
-          alignment: 1,  
+          alignment: 1,
           join: "round",
         })
         container.addChild(stroke)
@@ -249,7 +255,13 @@ export const createShape = async (
   }
 
   if (element.type === "image") {
-    const texture = await Assets.load(element.src)
+    // 使用纹理缓存避免重复加载相同图片
+    let texturePromise = textureCache.get(element.src)
+    if (!texturePromise) {
+      texturePromise = Assets.load(element.src)
+      textureCache.set(element.src, texturePromise)
+    }
+    const texture = await texturePromise
     const sprite = new Sprite(texture)
 
     sprite.eventMode = "none"
@@ -306,17 +318,17 @@ const drawHandle = (
   _isMultiSelection: boolean
 ) => {
   target.clear()
-  
+
   // 控制点颜色 #29b6f2 (0x29b6f2)
   const DOT_COLOR = 0x29b6f2
 
   // 绘制圆形 (x, y, radius)
   // 半径 = 直径 / 2
   target.circle(0, 0, handleSize / 2)
-  
+
   // 填充实心蓝
   target.fill({ color: DOT_COLOR })
-  
+
   // 添加 1px 白色描边，防止在深色背景或同色物体上看不清
   target.stroke({ width: 1, color: 0xffffff })
 }
@@ -340,7 +352,7 @@ export const createResizeHandlesLayer = (
   handlesLayer.position.set(element.x + element.width / 2, element.y + element.height / 2)
   handlesLayer.angle = element.rotation
 
-  const handleSize = 7 / zoom 
+  const handleSize = 7 / zoom
   // 增加点击区域的大小（edgeThickness），让小圆点更容易被点中
   const edgeThickness = Math.max(20 / zoom, handleSize * 2)
 
@@ -431,11 +443,11 @@ export const createResizeHandlesLayer = (
     const handleSize = 8 / zoom
     // 计算右上角位置
     const nePos = getHandlePosition("ne", element.width, element.height)
-    
+
     // 旋转手柄位置：在右上角 (ne) 的基础上，再向上延伸 ROTATE_HANDLE_OFFSET 距离
     // 因为 layer 已经旋转了，所以这里的 y 轴负方向就是相对于元素的“上方”
     const rotateY = -ROTATE_HANDLE_OFFSET / zoom
-    
+
     // 1. 绘制连接线 (从右上角连出来)
     rotateHandle.moveTo(nePos.x, 0) // 从 ne 的 y=0 (top edge) 开始
     rotateHandle.lineTo(nePos.x, rotateY)
@@ -470,7 +482,7 @@ export const createSolidBoundsOutline = (
   bounds: { x: number; y: number; width: number; height: number; rotation?: number }
 ) => {
   const outline = new Graphics()
-  
+
   // 直接绘制矩形路径
   outline.rect(0, 0, bounds.width, bounds.height)
 
@@ -527,14 +539,14 @@ export const createSelectionOutline = (bounds: { x: number; y: number; width: nu
   drawDashedLine(0, bounds.height, 0, 0)
 
   // 应用描边样式
- outline.stroke({ width: 1.4, color: SELECTION_COLOR, alpha: 1 })
-  
+  outline.stroke({ width: 1.4, color: SELECTION_COLOR, alpha: 1 })
+
   // 设置位置和旋转
   outline.pivot.set(bounds.width / 2, bounds.height / 2)
   outline.position.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
   outline.angle = bounds.rotation
   outline.zIndex = 2
-  
+
   return outline
 }
 
@@ -734,7 +746,7 @@ export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
   // 将角度转换为度数，并归一化到 0-360
   let degrees = Math.round(element.rotation) % 360
   if (degrees < 0) degrees += 360
-  
+
   const text = new Text({
     text: `${degrees}°`,
     style: new TextStyle({
@@ -744,18 +756,18 @@ export const createRotateTooltip = (element: CanvasElement, zoom: number) => {
       fontWeight: "bold",
     }),
   })
-  
+
   // 创建背景
   const bg = new Graphics()
   const padding = 6 / zoom
   bg.roundRect(0, 0, text.width + padding * 2, text.height + padding * 2, 4 / zoom)
   bg.fill({ color: 0x1e293b, alpha: 0.9 })
-  
+
   text.position.set(padding, padding)
-  
+
   container.addChild(bg)
   container.addChild(text)
-  
+
   // 抵消画布的缩放，让文字始终保持清晰大小
   // 同时抵消元素的旋转（如果它是作为子元素添加的话），但通常 Tooltip 是加在顶层的
   // 这里假设它加在 content 层，位置是绝对坐标

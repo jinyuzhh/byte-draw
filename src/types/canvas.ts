@@ -536,7 +536,7 @@ export interface CanvasContextValue {
     format?: 'jpg' | 'png' | 'jpeg' 
     quality?: number
     scale?: number
-  }) => string | null
+  }) => Promise<string | null>
   copy: () => void
   paste: () => void
   /**
