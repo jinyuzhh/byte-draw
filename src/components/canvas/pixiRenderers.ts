@@ -4,12 +4,14 @@ import {
   ColorMatrixFilter,
   Container,
   FederatedPointerEvent,
+  Filter,
   Graphics,
   Rectangle,
   Sprite,
   Text,
   TextStyle,
 } from "pixi.js"
+import { GlowFilter } from "pixi-filters"
 import type { TextStyleFontWeight } from "pixi.js"
 import type { CanvasElement } from "../../types/canvas"
 import type { ResizeDirection } from "./pixiConstants"
@@ -151,21 +153,56 @@ export const createShape = async (
 
     const padding = 12
 
+    // 构建 TextStyle 配置
+    const textStyleOptions: ConstructorParameters<typeof TextStyle>[0] = {
+      fontFamily: element.fontFamily,
+      fontSize: element.fontSize,
+      fontWeight: `${element.fontWeight}` as TextStyleFontWeight,
+      fontStyle: element.italic ? 'italic' : 'normal',
+      fill: element.color,
+      align: element.align,
+      lineHeight: element.fontSize * element.lineHeight,
+      letterSpacing: element.letterSpacing || 0,
+      wordWrap: true,
+      wordWrapWidth: element.width - (padding * 2), // 减去左右 padding
+    }
+
+    // 添加阴影效果
+    if (element.textShadow?.enabled) {
+      textStyleOptions.dropShadow = {
+        color: element.textShadow.color,
+        blur: element.textShadow.blur,
+        distance: Math.sqrt(
+          element.textShadow.offsetX ** 2 + element.textShadow.offsetY ** 2
+        ),
+        angle: Math.atan2(element.textShadow.offsetY, element.textShadow.offsetX),
+      }
+    }
+
+    // 添加描边效果
+    if (element.textStroke?.enabled && element.textStroke.width > 0) {
+      textStyleOptions.stroke = {
+        color: element.textStroke.color,
+        width: element.textStroke.width,
+      }
+    }
+
     const text = new Text({
       text: element.text,
-      style: new TextStyle({
-        fontFamily: element.fontFamily,
-        fontSize: element.fontSize,
-        fontWeight: `${element.fontWeight}` as TextStyleFontWeight,
-        fontStyle: element.italic ? 'italic' : 'normal',
-        fill: element.color,
-        align: element.align,
-        lineHeight: element.fontSize * element.lineHeight,
-        letterSpacing: element.letterSpacing || 0,
-        wordWrap: true,
-        wordWrapWidth: element.width - (padding * 2), // 减去左右 padding
-      }),
+      style: new TextStyle(textStyleOptions),
     })
+
+    // 添加发光效果（使用滤镜）
+    if (element.textGlow?.enabled) {
+      const glowFilter = new GlowFilter({
+        distance: element.textGlow.blur,
+        outerStrength: 2,
+        innerStrength: 0,
+        color: hexToNumber(element.textGlow.color),
+        quality: 0.5,
+      })
+      text.filters = [glowFilter as Filter]
+    }
     
     // 根据水平对齐方式计算 X 位置和锚点
     let anchorX = 0;

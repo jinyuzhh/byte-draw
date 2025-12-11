@@ -635,6 +635,23 @@ export const CanvasProvider = ({ children }: { children: ReactNode }) => {
         italic: false,
         underline: false,
         textTransform: "none",
+        textShadow: {
+          enabled: false,
+          offsetX: 2,
+          offsetY: 2,
+          blur: 4,
+          color: '#00000040'
+        },
+        textStroke: {
+          enabled: false,
+          width: 1,
+          color: '#000000'
+        },
+        textGlow: {
+          enabled: false,
+          blur: 10,
+          color: '#ffffff'
+        },
       }
       // 将新元素添加到画布
       mutateElements((elements) => [...elements, element])
