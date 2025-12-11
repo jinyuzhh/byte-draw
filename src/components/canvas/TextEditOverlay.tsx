@@ -252,6 +252,14 @@ export const TextEditOverlay = ({
             wordWrap: 'break-word',
             overflowWrap: 'break-word',
             caretColor: '#3b82f6', // 蓝色光标
+            // 使用 flexbox 实现垂直对齐
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: editingElement.verticalAlign === 'middle' 
+              ? 'center' 
+              : editingElement.verticalAlign === 'bottom' 
+                ? 'flex-end' 
+                : 'flex-start',
           }}
         />
       </div>

@@ -166,25 +166,48 @@ export const createShape = async (
         wordWrapWidth: element.width - (padding * 2), // 减去左右 padding
       }),
     })
-    // 根据对齐方式计算位置和锚点
+    
+    // 根据水平对齐方式计算 X 位置和锚点
+    let anchorX = 0;
+    let posX = padding;
     switch (element.align) {
       case "center":
-        // 居中：锚点设为文本中心，X坐标设为容器的一半
-        text.anchor.set(0.5, 0)
-        text.position.set(element.width / 2, padding)
-        break
+        anchorX = 0.5;
+        posX = element.width / 2;
+        break;
       case "right":
-        // 右对齐：锚点设为文本右侧，X坐标设为容器宽度减去 padding
-        text.anchor.set(1, 0)
-        text.position.set(element.width - padding, padding)
-        break
+        anchorX = 1;
+        posX = element.width - padding;
+        break;
       case "left":
       default:
-        // 左对齐：锚点设为左侧，X坐标设为 padding
-        text.anchor.set(0, 0)
-        text.position.set(padding, padding)
-        break
+        anchorX = 0;
+        posX = padding;
+        break;
     }
+    
+    // 根据垂直对齐方式计算 Y 位置和锚点
+    let anchorY = 0;
+    let posY = padding;
+    switch (element.verticalAlign) {
+      case "middle":
+        anchorY = 0.5;
+        posY = element.height / 2;
+        break;
+      case "bottom":
+        anchorY = 1;
+        posY = element.height - padding;
+        break;
+      case "top":
+      default:
+        anchorY = 0;
+        posY = padding;
+        break;
+    }
+    
+    text.anchor.set(anchorX, anchorY);
+    text.position.set(posX, posY);
+    
     container.addChild(text)
   }
 
