@@ -576,23 +576,6 @@ export const RightPanel = () => {
             </div>
           </Section>
         )}
-        {/* 文本类 */}
-        {isSameType && commonType === "text" && (
-          <Section title="文字属性">
-            <TextControls
-              element={selectedElement as TextElement}
-              update={(changes) => handleTextsChange(changes)}
-            />
-            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-xs text-blue-700">
-                正在批量处理 {state.selectedIds.length} 个文本元素
-              </p>
-              <p className="text-xs text-blue-600 mt-1">
-                注意：文本批操作将修改所有选中的文本内容
-              </p>
-            </div>
-          </Section>
-        )}
         {/* 图片类 */}
         {isSameType && commonType === "image" && (
           <Section title="图片属性">
@@ -709,22 +692,6 @@ export const RightPanel = () => {
               <div className="mt-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
                 <p className="text-xs text-blue-700">
                   正在批量编辑 {children.length} 个图形元素
-                </p>
-              </div>
-            </Section>
-          )}
-
-          {commonType === "text" && (
-            <Section title="文字属性">
-              <TextControls
-                element={sampleElement as TextElement}
-                update={(changes) =>
-                  handleSameGroupUpdate(changes as Partial<CanvasElement>)
-                }
-              />
-              <div className="mt-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-xs text-blue-700">
-                  正在批量编辑 {children.length} 个文本元素
                 </p>
               </div>
             </Section>
@@ -891,17 +858,6 @@ export const RightPanel = () => {
       {selectedElement.type === "shape" && (
         <Section title="图形属性">
           <ShapeControls
-            element={selectedElement}
-            update={(changes) =>
-              handleSingleChange(changes as Partial<CanvasElement>)
-            }
-          />
-        </Section>
-      )}
-
-      {selectedElement.type === "text" && (
-        <Section title="文字属性">
-          <TextControls
             element={selectedElement}
             update={(changes) =>
               handleSingleChange(changes as Partial<CanvasElement>)

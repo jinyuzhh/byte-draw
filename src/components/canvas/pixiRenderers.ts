@@ -4,12 +4,14 @@ import {
   ColorMatrixFilter,
   Container,
   FederatedPointerEvent,
+  Filter,
   Graphics,
   Rectangle,
   Sprite,
   Text,
   TextStyle,
 } from "pixi.js"
+import { GlowFilter } from "pixi-filters"
 import type { TextStyleFontWeight } from "pixi.js"
 import type { CanvasElement } from "../../types/canvas"
 import type { ResizeDirection } from "./pixiConstants"
@@ -155,20 +157,100 @@ export const createShape = async (
       container.addChild(bg)
     }
 
+    const padding = 12
+
+    // 构建 TextStyle 配置
+    const textStyleOptions: ConstructorParameters<typeof TextStyle>[0] = {
+      fontFamily: element.fontFamily,
+      fontSize: element.fontSize,
+      fontWeight: `${element.fontWeight}` as TextStyleFontWeight,
+      fontStyle: element.italic ? 'italic' : 'normal',
+      fill: element.color,
+      align: element.align,
+      lineHeight: element.fontSize * element.lineHeight,
+      letterSpacing: element.letterSpacing || 0,
+      wordWrap: true,
+      wordWrapWidth: element.width - (padding * 2), // 减去左右 padding
+    }
+
+    // 添加阴影效果
+    if (element.textShadow?.enabled) {
+      textStyleOptions.dropShadow = {
+        color: element.textShadow.color,
+        blur: element.textShadow.blur,
+        distance: Math.sqrt(
+          element.textShadow.offsetX ** 2 + element.textShadow.offsetY ** 2
+        ),
+        angle: Math.atan2(element.textShadow.offsetY, element.textShadow.offsetX),
+      }
+    }
+
+    // 添加描边效果
+    if (element.textStroke?.enabled && element.textStroke.width > 0) {
+      textStyleOptions.stroke = {
+        color: element.textStroke.color,
+        width: element.textStroke.width,
+      }
+    }
+
     const text = new Text({
       text: element.text,
-      style: new TextStyle({
-        fontFamily: element.fontFamily,
-        fontSize: element.fontSize,
-        fontWeight: `${element.fontWeight}` as TextStyleFontWeight,
-        fill: element.color,
-        align: element.align,
-        lineHeight: element.fontSize * element.lineHeight,
-        wordWrap: true,
-        wordWrapWidth: element.width,
-      }),
+      style: new TextStyle(textStyleOptions),
     })
-    text.position.set(12, 12)
+
+    // 添加发光效果（使用滤镜）
+    if (element.textGlow?.enabled) {
+      const glowFilter = new GlowFilter({
+        distance: element.textGlow.blur,
+        outerStrength: 2,
+        innerStrength: 0,
+        color: hexToNumber(element.textGlow.color),
+        quality: 0.5,
+      })
+      text.filters = [glowFilter as Filter]
+    }
+    
+    // 根据水平对齐方式计算 X 位置和锚点
+    let anchorX = 0;
+    let posX = padding;
+    switch (element.align) {
+      case "center":
+        anchorX = 0.5;
+        posX = element.width / 2;
+        break;
+      case "right":
+        anchorX = 1;
+        posX = element.width - padding;
+        break;
+      case "left":
+      default:
+        anchorX = 0;
+        posX = padding;
+        break;
+    }
+    
+    // 根据垂直对齐方式计算 Y 位置和锚点
+    let anchorY = 0;
+    let posY = padding;
+    switch (element.verticalAlign) {
+      case "middle":
+        anchorY = 0.5;
+        posY = element.height / 2;
+        break;
+      case "bottom":
+        anchorY = 1;
+        posY = element.height - padding;
+        break;
+      case "top":
+      default:
+        anchorY = 0;
+        posY = padding;
+        break;
+    }
+    
+    text.anchor.set(anchorX, anchorY);
+    text.position.set(posX, posY);
+    
     container.addChild(text)
   }
 
