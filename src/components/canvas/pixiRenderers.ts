@@ -76,7 +76,6 @@ export const createShape = async (
   else if (element.type === "shape") {
     const fill = new Graphics()
     const stroke = new Graphics()
-    const mask = new Graphics()
     const fillColor = hexToNumber(element.fill)
     const strokeColor = hexToNumber(element.stroke)
 
@@ -109,22 +108,10 @@ export const createShape = async (
       }
     }
 
-    // 创建一个内部容器用于填充，这个容器会被 mask 裁剪
-    const fillContainer = new Container()
-
-    drawPath(mask)
-    mask.fill({ color: 0xffffff, alpha: 1 })
-    mask.alpha = 0
-    mask.eventMode = "none"
-    fillContainer.addChild(mask)
-    fillContainer.mask = mask
-
+    // 直接绘制填充形状，不使用 mask（避免大尺寸时的渲染问题）
     drawPath(fill)
     fill.fill({ color: fillColor, alpha: 1 })
-    fillContainer.addChild(fill)
-
-    // 将填充容器添加到主容器
-    container.addChild(fillContainer)
+    container.addChild(fill)
 
     // 描边单独添加到主容器，不受 mask 影响
     // 这样描边（尤其是外侧对齐的描边）不会被裁剪
