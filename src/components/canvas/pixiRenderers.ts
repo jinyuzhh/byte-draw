@@ -45,7 +45,8 @@ export const createShape = async (
   container.angle = element.rotation
   container.alpha = element.opacity
 
-  container.eventMode = "static"
+  // 在 pan 模式下，使用 passive 让事件穿透到背景，以便拖动画布
+  container.eventMode = interactionMode === "select" ? "static" : "passive"
   container.cursor = interactionMode === "select" ? "move" : "grab"
   container.hitArea = new Rectangle(0, 0, element.width, element.height)
 
@@ -58,9 +59,11 @@ export const createShape = async (
       for (const child of element.children) {
         // 递归调用createShape渲染子元素
         const childContainer = await createShape(child, interactionMode, (event) => {
-          // 当点击子元素时，冒泡到父组的点击事件
-          event.stopPropagation()
-          onPointerDown(event)
+          // 当点击子元素时，只在 select 模式下处理
+          if (interactionMode === "select") {
+            event.stopPropagation()
+            onPointerDown(event)
+          }
         })
         // 子元素已经是相对于组的位置，直接添加到容器
         container.addChild(childContainer)

@@ -213,8 +213,8 @@ export const PixiCanvas = () => {
 
   const handleElementPointerDown = useCallback(
     (event: FederatedPointerEvent, elementId: string) => {
-      event.stopPropagation();
       if (stateRef.current.interactionMode !== "select") return;
+      event.stopPropagation();
       const { selectedIds, elements, editingTextId } = stateRef.current;
 
       // 如果正在编辑文本，点击其他元素时退出编辑模式
@@ -276,8 +276,8 @@ export const PixiCanvas = () => {
 
   const handleSelectionBoxPointerDown = useCallback(
     (event: FederatedPointerEvent) => {
-      event.stopPropagation();
       if (stateRef.current.interactionMode !== "select") return;
+      event.stopPropagation();
       const { selectedIds, elements } = stateRef.current;
       const content = contentRef.current;
       if (!content) return;
@@ -919,6 +919,28 @@ export const PixiCanvas = () => {
       };
 
       app.stage.on("rightclick", handleRightClick);
+      
+      // 在 stage 级别处理 pan 模式的 pointerdown，这样点击任何地方都能触发 pan
+      app.stage.on("pointerdown", (event: FederatedPointerEvent) => {
+        if (stateRef.current.interactionMode === "pan") {
+          // 忽略右键点击
+          if (event.originalEvent && (event.originalEvent as any).button === 2) {
+            return;
+          }
+          const scrollContainer = scrollContainerRef.current;
+          panRef.current = {
+            startPointer: { x: event.global.x, y: event.global.y },
+            startScroll: {
+              x: scrollContainer?.scrollLeft ?? 0,
+              y: scrollContainer?.scrollTop ?? 0,
+            },
+          };
+          if (backgroundRef.current) {
+            backgroundRef.current.cursor = "grabbing";
+          }
+        }
+      });
+
       if (appRef.current && appRef.current.canvas && preventContextMenuRef.current) {
         appRef.current.canvas.addEventListener(
           "contextmenu",
