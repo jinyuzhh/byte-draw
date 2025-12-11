@@ -58,7 +58,7 @@ export const TopBar = () => {
 
     try {
       // 获取画布的 Data URL
-      const dataUrl = exportAsImage(options)
+      const dataUrl = await exportAsImage(options)
       if (!dataUrl) {
         alert("导出失败，请重试")
         return
